@@ -1,10 +1,54 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { User, Project, FileNode } from '../types';
+// src/context/AppContext.tsx
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { authApi, setAccessToken } from '../services/api';
+
+// ── Types ─────────────────────────────────────────────────────────────────
+
+export type UserRole = 'Admin' | 'Developer' | 'Viewer';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  avatar?: string;
+  isEmailVerified: boolean;
+}
+
+export interface FileNode {
+  id: string;
+  name: string;
+  type: 'file' | 'folder';
+  content?: string;
+  language?: string;
+  children?: FileNode[];
+  path: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string;
+  language: string;
+  lastModified: string;
+  status: 'Active' | 'Inactive' | 'Archived';
+  files: FileNode[];
+}
 
 interface AppContextType {
+  // Auth state
   user: User | null;
-  setUser: (user: User | null) => void;
   isAuthenticated: boolean;
+  authLoading: boolean;
+  authError: string | null;
+
+  // Auth actions
+  login: (email: string, password: string) => Promise<void>;
+  register: (name: string, email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  clearAuthError: () => void;
+
+  // App state
   projects: Project[];
   setProjects: (p: Project[]) => void;
   activeProject: Project | null;
@@ -13,19 +57,11 @@ interface AppContextType {
   setOpenFiles: (f: FileNode[]) => void;
   activeFile: FileNode | null;
   setActiveFile: (f: FileNode | null) => void;
-  login: (email: string, password: string) => boolean;
-  logout: () => void;
 }
 
 const AppContext = createContext<AppContextType>({} as AppContextType);
 
-const DEMO_USER: User = {
-  id: '1',
-  name: 'demo',
-  email: 'demo@dewcode.dev',
-  role: 'Admin',
-};
-
+// Demo projects (replace with API calls once backend project endpoints exist)
 const DEMO_PROJECTS: Project[] = [
   {
     id: '1',
@@ -36,21 +72,9 @@ const DEMO_PROJECTS: Project[] = [
     status: 'Active',
     files: [
       { id: 'src', name: 'src', type: 'folder', path: 'src', children: [
-        { id: 'components', name: 'components', type: 'folder', path: 'src/components', children: [
-          { id: 'header', name: 'Header.jsx', type: 'file', path: 'src/components/Header.jsx', language: 'javascript',
-            content: `import React from "react";\n\nconst Header = () => {\n  return <header>Header</header>;\n};\n\nexport default Header;` },
-          { id: 'footer', name: 'Footer.jsx', type: 'file', path: 'src/components/Footer.jsx', language: 'javascript',
-            content: `import React from "react";\n\nconst Footer = () => {\n  return <footer>Footer</footer>;\n};\n\nexport default Footer;` },
-        ]},
         { id: 'app', name: 'App.js', type: 'file', path: 'src/App.js', language: 'javascript',
-          content: `import React from 'react';\nimport Header from './components/Header';\nimport Footer from './components/Footer';\n\nfunction App() {\n  return (\n    <div className="App">\n      <Header />\n      <main>Content goes here</main>\n      <Footer />\n    </div>\n  );\n}\n\nexport default App;` },
-        { id: 'index', name: 'index.js', type: 'file', path: 'src/index.js', language: 'javascript',
-          content: `import React from 'react';\nimport ReactDOM from 'react-dom/client';\nimport App from './App';\n\nconst root = ReactDOM.createRoot(document.getElementById('root'));\nroot.render(<App />);` },
+          content: `import React from 'react';\n\nfunction App() {\n  return <div>Hello World</div>;\n}\n\nexport default App;` },
       ]},
-      { id: 'pkg', name: 'package.json', type: 'file', path: 'package.json', language: 'json',
-        content: `{\n  "name": "ecommerce-platform",\n  "version": "1.0.0",\n  "dependencies": {\n    "react": "^18.0.0",\n    "react-dom": "^18.0.0"\n  }\n}` },
-      { id: 'readme', name: 'README.md', type: 'file', path: 'README.md', language: 'markdown',
-        content: `# E-commerce Platform\n\nFull-stack online store with payment integration.\n\n## Getting Started\n\n\`\`\`bash\nnpm install\nnpm start\n\`\`\`` },
     ],
   },
   {
@@ -62,55 +86,120 @@ const DEMO_PROJECTS: Project[] = [
     status: 'Active',
     files: [
       { id: 'main', name: 'main.py', type: 'file', path: 'main.py', language: 'python',
-        content: `from fastapi import FastAPI\nfrom pydantic import BaseModel\n\napp = FastAPI()\n\nclass Message(BaseModel):\n    content: str\n\n@app.post("/chat")\nasync def chat(message: Message):\n    return {"response": f"Echo: {message.content}"}` },
-      { id: 'req', name: 'requirements.txt', type: 'file', path: 'requirements.txt', language: 'plaintext',
-        content: `fastapi==0.104.0\nuvicorn==0.24.0\npydantic==2.4.0` },
-    ],
-  },
-  {
-    id: '3',
-    name: 'Portfolio Website',
-    description: 'Personal portfolio with animations',
-    language: 'React',
-    lastModified: '2024-01-19',
-    status: 'Active',
-    files: [
-      { id: 'index-html', name: 'index.html', type: 'file', path: 'index.html', language: 'html',
-        content: `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <title>Portfolio</title>\n</head>\n<body>\n  <div id="root"></div>\n</body>\n</html>` },
+        content: `from fastapi import FastAPI\napp = FastAPI()\n\n@app.get("/")\ndef root():\n    return {"message": "Hello"}\n` },
     ],
   },
 ];
 
+// ── Provider ──────────────────────────────────────────────────────────────
+
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true); // true on mount — check session
+  const [authError, setAuthError] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>(DEMO_PROJECTS);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [openFiles, setOpenFiles] = useState<FileNode[]>([]);
   const [activeFile, setActiveFile] = useState<FileNode | null>(null);
 
-  const login = (email: string, _password: string): boolean => {
-    if (email === 'demo@dewcode.dev' || email === 'demo') {
-      setUser(DEMO_USER);
-      return true;
-    }
-    return false;
-  };
+  // ── On mount: try to restore session via /api/auth/me ─────────────────
+  useEffect(() => {
+    const restoreSession = async () => {
+      try {
+        const resp = await authApi.getMe();
+        if (resp.success && resp.data) {
+          setUser(resp.data.user);
+          if (resp.data.accessToken) setAccessToken(resp.data.accessToken);
+        }
+      } catch {
+        // No active session — stay logged out
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+    restoreSession();
+  }, []);
 
-  const logout = () => {
-    setUser(null);
-    setActiveProject(null);
-    setOpenFiles([]);
-    setActiveFile(null);
-  };
+  // ── Listen for session expiry events from api.ts ───────────────────────
+  useEffect(() => {
+    const handleExpiry = () => {
+      setUser(null);
+      setAccessToken(null);
+    };
+    window.addEventListener('auth:sessionExpired', handleExpiry);
+    return () => window.removeEventListener('auth:sessionExpired', handleExpiry);
+  }, []);
+
+  // ── Auth actions ───────────────────────────────────────────────────────
+
+  const login = useCallback(async (email: string, password: string): Promise<void> => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const resp = await authApi.login(email, password);
+      if (resp.success && resp.data) {
+        setAccessToken(resp.data.accessToken);
+        setUser(resp.data.user);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Login failed.';
+      setAuthError(message);
+      throw err; // allow page to show inline error
+    } finally {
+      setAuthLoading(false);
+    }
+  }, []);
+
+  const register = useCallback(async (name: string, email: string, password: string): Promise<void> => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const resp = await authApi.register(name, email, password);
+      if (resp.success && resp.data) {
+        setAccessToken(resp.data.accessToken);
+        setUser(resp.data.user);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Registration failed.';
+      setAuthError(message);
+      throw err;
+    } finally {
+      setAuthLoading(false);
+    }
+  }, []);
+
+  const logout = useCallback(async (): Promise<void> => {
+    try {
+      await authApi.logout();
+    } finally {
+      setAccessToken(null);
+      setUser(null);
+      setActiveProject(null);
+      setOpenFiles([]);
+      setActiveFile(null);
+    }
+  }, []);
+
+  const clearAuthError = useCallback(() => setAuthError(null), []);
 
   return (
     <AppContext.Provider value={{
-      user, setUser, isAuthenticated: !!user,
-      projects, setProjects,
-      activeProject, setActiveProject,
-      openFiles, setOpenFiles,
-      activeFile, setActiveFile,
-      login, logout,
+      user,
+      isAuthenticated: !!user,
+      authLoading,
+      authError,
+      login,
+      register,
+      logout,
+      clearAuthError,
+      projects,
+      setProjects,
+      activeProject,
+      setActiveProject,
+      openFiles,
+      setOpenFiles,
+      activeFile,
+      setActiveFile,
     }}>
       {children}
     </AppContext.Provider>
