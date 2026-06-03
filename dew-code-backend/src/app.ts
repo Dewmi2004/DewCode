@@ -8,13 +8,15 @@ import { apiLimiter } from './middleware/rateLimiter.middleware';
 import errorHandler from './middleware/error.middleware';
 import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
+import projectRoutes from './routes/project.routes';
+import fileRoutes from './routes/file.routes';
 
 const app: Application = express();
 
-// ── Security Headers (Helmet) ────────────────────────────────────────────
+// ── Security Headers ──────────────────────────────────────────────────────
 app.use(
   helmet({
-    crossOriginEmbedderPolicy: false,          // helmet v7 camelCase — valid
+    crossOriginEmbedderPolicy: false,
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
@@ -26,7 +28,7 @@ app.use(
   })
 );
 
-// ── CORS ─────────────────────────────────────────────────────────────────
+// ── CORS ──────────────────────────────────────────────────────────────────
 app.use(
   cors({
     origin: process.env.CLIENT_URL || 'http://localhost:3000',
@@ -58,8 +60,10 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 // ── API Routes ────────────────────────────────────────────────────────────
-app.use('/api/auth',  authRoutes);
-app.use('/api/users', userRoutes);
+app.use('/api/auth',     authRoutes);
+app.use('/api/users',    userRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api/files',    fileRoutes);
 
 // ── 404 Handler ───────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {
