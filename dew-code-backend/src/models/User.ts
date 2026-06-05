@@ -3,6 +3,79 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 
 export type UserRole = 'Admin' | 'Developer' | 'Viewer';
+export type ThemeName = 'dark' | 'light' | 'solarized' | 'monokai' | 'dracula' | 'nord' | 'high-contrast';
+
+export interface UserSettings {
+  appearance: {
+    theme: ThemeName;
+    accentColor: string;
+    compactMode: boolean;
+    reduceMotion: boolean;
+  };
+  editor: {
+    fontSize: number;
+    fontFamily: string;
+    tabSize: number;
+    wordWrap: 'on' | 'off';
+    minimap: boolean;
+    lineNumbers: boolean;
+    autoSave: boolean;
+    formatOnSave: boolean;
+  };
+  layout: {
+    sidebarCollapsed: boolean;
+    settingsNavCollapsed: boolean;
+    editorExplorerCollapsed: boolean;
+    terminalCollapsed: boolean;
+  };
+  github: {
+    username: string;
+    defaultBranch: string;
+    autoSync: boolean;
+    tokenConfigured: boolean;
+    tokenLast4: string;
+  };
+  security: {
+    twoFactorEnabled: boolean;
+    loginAlerts: boolean;
+  };
+}
+
+export const DEFAULT_USER_SETTINGS: UserSettings = {
+  appearance: {
+    theme: 'dark',
+    accentColor: '#00D4B8',
+    compactMode: false,
+    reduceMotion: false,
+  },
+  editor: {
+    fontSize: 13,
+    fontFamily: 'JetBrains Mono',
+    tabSize: 2,
+    wordWrap: 'on',
+    minimap: true,
+    lineNumbers: true,
+    autoSave: false,
+    formatOnSave: false,
+  },
+  layout: {
+    sidebarCollapsed: false,
+    settingsNavCollapsed: false,
+    editorExplorerCollapsed: false,
+    terminalCollapsed: false,
+  },
+  github: {
+    username: '',
+    defaultBranch: 'main',
+    autoSync: false,
+    tokenConfigured: false,
+    tokenLast4: '',
+  },
+  security: {
+    twoFactorEnabled: false,
+    loginAlerts: true,
+  },
+};
 
 export interface IUser extends Document {
   _id: mongoose.Types.ObjectId;
@@ -17,6 +90,7 @@ export interface IUser extends Document {
   passwordResetExpires?: Date;
   loginAttempts: number;
   lockUntil?: Date;
+  settings: UserSettings;
   createdAt: Date;
   updatedAt: Date;
 
@@ -33,6 +107,7 @@ export interface SafeUser {
   role: UserRole;
   avatar?: string;
   isEmailVerified: boolean;
+  settings: UserSettings;
   createdAt: Date;
 }
 
@@ -93,6 +168,118 @@ const userSchema = new Schema<IUser>(
       type: Date,
       default: null,
     },
+    settings: {
+      appearance: {
+        theme: {
+          type: String,
+          enum: ['dark', 'light', 'solarized', 'monokai', 'dracula', 'nord', 'high-contrast'],
+          default: DEFAULT_USER_SETTINGS.appearance.theme,
+        },
+        accentColor: {
+          type: String,
+          default: DEFAULT_USER_SETTINGS.appearance.accentColor,
+        },
+        compactMode: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.appearance.compactMode,
+        },
+        reduceMotion: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.appearance.reduceMotion,
+        },
+      },
+      editor: {
+        fontSize: {
+          type: Number,
+          min: 10,
+          max: 24,
+          default: DEFAULT_USER_SETTINGS.editor.fontSize,
+        },
+        fontFamily: {
+          type: String,
+          default: DEFAULT_USER_SETTINGS.editor.fontFamily,
+        },
+        tabSize: {
+          type: Number,
+          min: 2,
+          max: 8,
+          default: DEFAULT_USER_SETTINGS.editor.tabSize,
+        },
+        wordWrap: {
+          type: String,
+          enum: ['on', 'off'],
+          default: DEFAULT_USER_SETTINGS.editor.wordWrap,
+        },
+        minimap: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.editor.minimap,
+        },
+        lineNumbers: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.editor.lineNumbers,
+        },
+        autoSave: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.editor.autoSave,
+        },
+        formatOnSave: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.editor.formatOnSave,
+        },
+      },
+      layout: {
+        sidebarCollapsed: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.layout.sidebarCollapsed,
+        },
+        settingsNavCollapsed: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.layout.settingsNavCollapsed,
+        },
+        editorExplorerCollapsed: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.layout.editorExplorerCollapsed,
+        },
+        terminalCollapsed: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.layout.terminalCollapsed,
+        },
+      },
+      github: {
+        username: {
+          type: String,
+          default: DEFAULT_USER_SETTINGS.github.username,
+          trim: true,
+        },
+        defaultBranch: {
+          type: String,
+          default: DEFAULT_USER_SETTINGS.github.defaultBranch,
+          trim: true,
+        },
+        autoSync: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.github.autoSync,
+        },
+        tokenConfigured: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.github.tokenConfigured,
+        },
+        tokenLast4: {
+          type: String,
+          default: DEFAULT_USER_SETTINGS.github.tokenLast4,
+        },
+      },
+      security: {
+        twoFactorEnabled: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.security.twoFactorEnabled,
+        },
+        loginAlerts: {
+          type: Boolean,
+          default: DEFAULT_USER_SETTINGS.security.loginAlerts,
+        },
+      },
+    },
   },
   {
     timestamps: true,
@@ -134,6 +321,10 @@ userSchema.methods.isLocked = function (): boolean {
 };
 
 userSchema.methods.toSafeObject = function (): SafeUser {
+  const savedSettings = (this.settings as unknown as { toObject?: () => Partial<UserSettings> })?.toObject
+    ? (this.settings as unknown as { toObject: () => Partial<UserSettings> }).toObject()
+    : this.settings;
+
   return {
     id: this._id.toString(),
     name: this.name,
@@ -141,6 +332,30 @@ userSchema.methods.toSafeObject = function (): SafeUser {
     role: this.role,
     avatar: this.avatar,
     isEmailVerified: this.isEmailVerified,
+    settings: {
+      ...DEFAULT_USER_SETTINGS,
+      ...(savedSettings ?? {}),
+      appearance: {
+        ...DEFAULT_USER_SETTINGS.appearance,
+        ...(savedSettings?.appearance ?? {}),
+      },
+      editor: {
+        ...DEFAULT_USER_SETTINGS.editor,
+        ...(savedSettings?.editor ?? {}),
+      },
+      layout: {
+        ...DEFAULT_USER_SETTINGS.layout,
+        ...(savedSettings?.layout ?? {}),
+      },
+      github: {
+        ...DEFAULT_USER_SETTINGS.github,
+        ...(savedSettings?.github ?? {}),
+      },
+      security: {
+        ...DEFAULT_USER_SETTINGS.security,
+        ...(savedSettings?.security ?? {}),
+      },
+    },
     createdAt: this.createdAt,
   };
 };

@@ -190,7 +190,7 @@ const ProjectsPage: React.FC<Props> = ({ onNavigate }) => {
   };
 
   const handleDelete = (id: string) => {
-    if (confirm('Delete this project and all its files?')) {
+    if (window.confirm('Delete this project and all its files?')) {
       dispatch(deleteProject(id));
     }
   };

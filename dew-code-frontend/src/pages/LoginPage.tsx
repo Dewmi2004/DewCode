@@ -3,7 +3,11 @@ import React, { useState, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import { loginUser, registerUser, clearError } from '../store/slices/authSlice';
 
-const LoginPage: React.FC = () => {
+interface LoginPageProps {
+  onBack?: () => void;
+}
+
+const LoginPage: React.FC<LoginPageProps> = ({ onBack }) => {
   const dispatch = useAppDispatch();
   const { loading, error } = useAppSelector((s) => s.auth);
 
@@ -47,6 +51,16 @@ const LoginPage: React.FC = () => {
         className="w-full max-w-sm p-8 rounded-2xl"
         style={{ background: '#12121A', border: '1px solid #1E1E2E' }}
       >
+        {onBack && (
+          <button
+            type="button"
+            className="mb-5 text-xs font-medium text-gray-500 transition-colors hover:text-white"
+            onClick={onBack}
+          >
+            Back to website
+          </button>
+        )}
+
         {/* Logo */}
         <div className="text-center mb-7">
           <h1 className="text-2xl font-bold" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>

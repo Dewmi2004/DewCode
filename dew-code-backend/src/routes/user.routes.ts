@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { protect, authorize } from '../middleware/auth.middleware';
 import { sendSuccess, sendError } from '../utils/response';
-import User from '../models/User';
+import User, { DEFAULT_USER_SETTINGS, UserSettings } from '../models/User';
 
 const router = Router();
 
@@ -18,10 +18,34 @@ router.get('/profile', async (req: Request, res: Response, next: NextFunction) =
 // PUT /api/users/profile — update own name/avatar
 router.put('/profile', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { name, avatar } = req.body;
+    const { name, email, avatar } = req.body;
     const updates: Record<string, string> = {};
-    if (name) updates.name = name.trim();
-    if (avatar) updates.avatar = avatar;
+    if (name !== undefined) {
+      if (!name.trim()) {
+        sendError(res, 'Display name is required.', 400);
+        return;
+      }
+      updates.name = name.trim();
+    }
+    if (email !== undefined) {
+      const normalizedEmail = email.toLowerCase().trim();
+      if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+        sendError(res, 'Please provide a valid email address.', 400);
+        return;
+      }
+
+      const existing = await User.findOne({
+        email: normalizedEmail,
+        _id: { $ne: req.user!._id },
+      });
+      if (existing) {
+        sendError(res, 'That email address is already in use.', 409);
+        return;
+      }
+
+      updates.email = normalizedEmail;
+    }
+    if (avatar !== undefined) updates.avatar = avatar;
 
     const updated = await User.findByIdAndUpdate(
       req.user!._id,
@@ -29,6 +53,108 @@ router.put('/profile', async (req: Request, res: Response, next: NextFunction) =
       { new: true, runValidators: true }
     );
     sendSuccess(res, 'Profile updated.', { user: updated?.toSafeObject() });
+  } catch (e) { next(e); }
+});
+
+// GET /api/users/settings - fetch own persisted preferences
+router.get('/settings', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    sendSuccess(res, 'Settings fetched.', {
+      settings: req.user!.toSafeObject().settings,
+    });
+  } catch (e) { next(e); }
+});
+
+// PUT /api/users/settings - update own preferences
+router.put('/settings', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const current = req.user!.toSafeObject().settings;
+    const incoming = req.body as Partial<UserSettings> & {
+      github?: Partial<UserSettings['github']> & { personalAccessToken?: string };
+    };
+
+    const nextSettings: UserSettings = {
+      ...DEFAULT_USER_SETTINGS,
+      ...current,
+      appearance: {
+        ...current.appearance,
+        ...(incoming.appearance ?? {}),
+      },
+      editor: {
+        ...current.editor,
+        ...(incoming.editor ?? {}),
+      },
+      layout: {
+        ...current.layout,
+        ...(incoming.layout ?? {}),
+      },
+      github: {
+        ...current.github,
+        ...(incoming.github ?? {}),
+      },
+      security: {
+        ...current.security,
+        ...(incoming.security ?? {}),
+      },
+    };
+
+    const token = incoming.github?.personalAccessToken?.trim();
+    if (token) {
+      nextSettings.github.tokenConfigured = true;
+      nextSettings.github.tokenLast4 = token.slice(-4);
+    }
+
+    const user = await User.findById(req.user!._id);
+    if (!user) {
+      sendError(res, 'User not found.', 404);
+      return;
+    }
+
+    user.settings = nextSettings;
+    await user.save();
+
+    sendSuccess(res, 'Settings saved.', {
+      settings: user.toSafeObject().settings,
+    });
+  } catch (e) { next(e); }
+});
+
+// PUT /api/users/password - change own password
+router.put('/password', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      sendError(res, 'Current password and new password are required.', 400);
+      return;
+    }
+
+    const strongPassword = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d])[^\s]{8,}$/;
+    if (!strongPassword.test(newPassword)) {
+      sendError(
+        res,
+        'Password must include uppercase, lowercase, number, and special character.',
+        400
+      );
+      return;
+    }
+
+    const user = await User.findById(req.user!._id).select('+password');
+    if (!user) {
+      sendError(res, 'User not found.', 404);
+      return;
+    }
+
+    const matches = await user.comparePassword(currentPassword);
+    if (!matches) {
+      sendError(res, 'Current password is incorrect.', 401);
+      return;
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    sendSuccess(res, 'Password updated.');
   } catch (e) { next(e); }
 });
 
