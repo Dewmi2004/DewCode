@@ -1,14 +1,25 @@
+// ✅ UPDATED src/routes/file.routes.ts
+// Role enforcement on file mutations
+
 import { Router } from 'express';
-import { createFile, getFilesByProject, getFileById, updateFile, deleteFile } from '../controllers/file.controller';
+import {
+  createFile, getFilesByProject, getFileById,
+  updateFile, deleteFile,
+} from '../controllers/file.controller';
 import { protect } from '../middleware/auth.middleware';
+import { requireWriter } from '../middleware/role.middleware';
 
 const router = Router();
+
 router.use(protect);
 
-router.post('/',                    createFile);
-router.get('/project/:projectId',   getFilesByProject);
-router.get('/single/:id',           getFileById);
-router.put('/:id',                  updateFile);
-router.delete('/:id',               deleteFile);
+// READ — all roles
+router.get('/project/:projectId', getFilesByProject);
+router.get('/:id', getFileById);
+
+// WRITE — Admin + Developer only
+router.post('/',     requireWriter, createFile);
+router.patch('/:id', requireWriter, updateFile);
+router.delete('/:id', requireWriter, deleteFile);
 
 export default router;

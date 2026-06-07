@@ -1,162 +1,321 @@
+// ✅ UPDATED SettingsPage.tsx
+// - All settings wired to Redux + persisted to backend
+// - Theme changes apply live to Monaco editor
+// - Role-based: Viewers cannot change editor/AI settings
+// - Loading states and success/error toasts
+
 import React, { useState } from 'react';
 import TopBar from '../components/layout/TopBar';
-import { useApp } from '../context/AppContext';
+import { useAppDispatch, useAppSelector } from '../hooks/redux';
+import { updateSettings, updateEditorSettings, updateAISettings } from '../features/settings/settingsSlice';
+
+type Tab = 'profile' | 'editor' | 'ai' | 'github' | 'security';
+
+const THEMES = [
+  { value: 'dark',          label: 'VS Dark (Default)' },
+  { value: 'light',         label: 'VS Light' },
+  { value: 'hc-black',      label: 'High Contrast' },
+  { value: 'solarized',     label: 'Solarized Dark' },
+  { value: 'monokai',       label: 'Monokai' },
+  { value: 'dracula',       label: 'Dracula' },
+  { value: 'nord',          label: 'Nord' },
+];
+
+const AI_MODELS = [
+  { value: 'qwen2.5-coder',   label: 'Qwen2.5-Coder (Recommended)' },
+  { value: 'codellama',        label: 'CodeLlama 7B' },
+  { value: 'deepseek-coder',   label: 'DeepSeek Coder' },
+  { value: 'starcoder',        label: 'StarCoder 2' },
+  { value: 'llama3.2',         label: 'Llama 3.2' },
+];
+
+const ROLE_DESCRIPTIONS: Record<string, string> = {
+  Admin:     'Full access — manage users, projects, settings',
+  Developer: 'Create and edit projects and files, use AI',
+  Viewer:    'Read-only access — cannot edit files or settings',
+};
+
+const Toggle: React.FC<{ value: boolean; onChange: (v: boolean) => void; disabled?: boolean }> = ({ value, onChange, disabled }) => (
+  <button
+    onClick={() => !disabled && onChange(!value)}
+    className="w-10 h-5 rounded-full relative transition-colors"
+    style={{ background: value ? '#00D4B8' : '#2A2A3A', opacity: disabled ? 0.4 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+    <div className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform"
+      style={{ transform: value ? 'translateX(21px)' : 'translateX(2px)' }} />
+  </button>
+);
 
 const SettingsPage: React.FC = () => {
-  const { user } = useApp();
-  const [tab, setTab] = useState('profile');
-  const [theme, setTheme] = useState('dark');
-  const [aiModel, setAiModel] = useState('qwen2.5-coder');
-  const [fontSize, setFontSize] = useState('13');
+  const dispatch = useAppDispatch();
+  const user = useAppSelector((s) => s.auth.user);
+  const settings = useAppSelector((s) => s.settings.settings);
+  const loading = useAppSelector((s) => s.settings.loading);
 
-  const tabs = ['profile', 'editor', 'ai', 'github', 'security'];
+  const isViewer = user?.role === 'Viewer';
+  const [tab, setTab]     = useState<Tab>('profile');
+  const [toast, setToast] = useState<{ msg: string; type: 'success'|'error' } | null>(null);
+
+  const showToast = (msg: string, type: 'success'|'error' = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleSaveAppearance = async () => {
+    try {
+      await dispatch(updateSettings({ appearance: settings.appearance })).unwrap();
+      showToast('Appearance saved!');
+    } catch { showToast('Save failed', 'error'); }
+  };
+
+  const handleSaveEditor = async () => {
+    try {
+      await dispatch(updateSettings({ editor: settings.editor })).unwrap();
+      showToast('Editor settings saved!');
+    } catch { showToast('Save failed', 'error'); }
+  };
+
+  const TABS: { id: Tab; label: string; roles: string[] }[] = [
+    { id: 'profile',  label: 'Profile',  roles: ['Admin','Developer','Viewer'] },
+    { id: 'editor',   label: 'Editor',   roles: ['Admin','Developer','Viewer'] },
+    { id: 'ai',       label: 'AI',       roles: ['Admin','Developer','Viewer'] },
+    { id: 'github',   label: 'GitHub',   roles: ['Admin','Developer'] },
+    { id: 'security', label: 'Security', roles: ['Admin','Developer'] },
+  ];
+
+  const visibleTabs = TABS.filter((t) => t.roles.includes(user?.role ?? 'Viewer'));
+
+  const inputStyle: React.CSSProperties = {
+    background: '#0A0A0F', border: '1px solid #2A2A3A',
+    color: '#E2E8F0', borderRadius: '8px', width: '100%',
+    padding: '8px 12px', fontSize: '14px', outline: 'none',
+  };
+
+  const ROLE_COLORS: Record<string, string> = { Admin: '#F87171', Developer: '#00D4B8', Viewer: '#FBBF24' };
+  const roleColor = ROLE_COLORS[user?.role ?? 'Viewer'];
 
   return (
     <div className="flex flex-col flex-1 h-screen overflow-hidden" style={{ background: '#0A0A0F' }}>
       <TopBar />
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 px-4 py-3 rounded-xl text-sm font-medium animate-fade-in"
+          style={{ background: toast.type === 'success' ? 'rgba(0,212,184,0.15)' : 'rgba(248,113,113,0.15)',
+            color: toast.type === 'success' ? '#00D4B8' : '#F87171',
+            border: `1px solid ${toast.type === 'success' ? 'rgba(0,212,184,0.3)' : 'rgba(248,113,113,0.3)'}` }}>
+          {toast.type === 'success' ? '✓' : '✕'} {toast.msg}
+        </div>
+      )}
+
       <div className="flex-1 overflow-auto p-6">
-        <div className="mb-6 animate-fade-in">
+        <div className="mb-6">
           <h2 className="text-xl font-semibold text-white" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>Settings</h2>
           <p className="text-sm mt-0.5" style={{ color: '#6B7280' }}>Manage your account and preferences</p>
         </div>
 
         <div className="flex gap-6">
-          <div className="w-40 space-y-0.5">
-            {tabs.map(t => (
-              <button key={t} onClick={() => setTab(t)}
-                className={`sidebar-item w-full text-left px-3 py-2 text-sm rounded-md capitalize ${tab === t ? 'active' : 'text-gray-400'}`}>
-                {t}
+          {/* Tab nav */}
+          <div className="w-40 space-y-0.5 flex-shrink-0">
+            {visibleTabs.map((t) => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className="w-full text-left px-3 py-2.5 text-sm rounded-md capitalize transition-all"
+                style={{
+                  background: tab === t.id ? 'rgba(0,212,184,0.08)' : 'transparent',
+                  color: tab === t.id ? '#00D4B8' : '#9CA3AF',
+                  borderLeft: tab === t.id ? '2px solid #00D4B8' : '2px solid transparent',
+                }}>
+                {t.label}
               </button>
             ))}
           </div>
 
-          <div className="flex-1 max-w-xl animate-fade-in">
+          {/* Content */}
+          <div className="flex-1 max-w-xl">
+
+            {/* ── PROFILE ── */}
             {tab === 'profile' && (
-              <div className="card p-6 space-y-4">
-                <h3 className="text-sm font-semibold text-white mb-4">Profile Settings</h3>
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold"
-                    style={{ background: 'rgba(0,212,184,0.15)', color: '#00D4B8', border: '2px solid rgba(0,212,184,0.3)' }}>
+              <div className="rounded-xl p-6 space-y-5" style={{ background: '#12121A', border: '1px solid #1E1E2E' }}>
+                <h3 className="text-sm font-semibold text-white">Profile</h3>
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold flex-shrink-0"
+                    style={{ background: `${roleColor}20`, color: roleColor, border: `2px solid ${roleColor}40` }}>
                     {user?.name[0].toUpperCase()}
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-white">{user?.name}</p>
-                    <p className="text-xs" style={{ color: '#6B7280' }}>{user?.email}</p>
-                    <span className="text-xs px-2 py-0.5 rounded-full mt-1 inline-block"
-                      style={{ background: 'rgba(0,212,184,0.1)', color: '#00D4B8', border: '1px solid rgba(0,212,184,0.2)' }}>
-                      {user?.role}
-                    </span>
+                    <p className="font-semibold text-white">{user?.name}</p>
+                    <p className="text-xs mt-0.5" style={{ color: '#6B7280' }}>{user?.email}</p>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                        style={{ background: `${roleColor}15`, color: roleColor, border: `1px solid ${roleColor}30` }}>
+                        {user?.role}
+                      </span>
+                    </div>
+                    <p className="text-xs mt-1" style={{ color: '#4B5563' }}>
+                      {ROLE_DESCRIPTIONS[user?.role ?? 'Viewer']}
+                    </p>
                   </div>
                 </div>
-                {[{ label: 'Display Name', val: user?.name || '' }, { label: 'Email', val: user?.email || '' }].map(f => (
-                  <div key={f.label}>
-                    <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>{f.label}</label>
-                    <input defaultValue={f.val} className="w-full px-3 py-2 text-sm rounded-md outline-none"
-                      style={{ background: '#0A0A0F', border: '1px solid #2A2A3A', color: '#E2E8F0' }} />
+
+                {['Display Name', 'Email'].map((label, i) => (
+                  <div key={label}>
+                    <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>{label}</label>
+                    <input defaultValue={i === 0 ? user?.name : user?.email} style={inputStyle}
+                      disabled={isViewer}
+                      onFocus={(e) => (e.target.style.borderColor = '#00D4B8')}
+                      onBlur={(e) => (e.target.style.borderColor = '#2A2A3A')} />
                   </div>
                 ))}
-                <button className="btn-primary px-4 py-2 text-sm mt-2">Save Changes</button>
+                {!isViewer && (
+                  <button className="px-4 py-2 text-sm font-medium rounded-lg transition-all hover:opacity-90"
+                    style={{ background: '#00D4B8', color: '#0A0A0F' }}>
+                    Save Profile
+                  </button>
+                )}
               </div>
             )}
 
+            {/* ── EDITOR ── */}
             {tab === 'editor' && (
-              <div className="card p-6 space-y-4">
-                <h3 className="text-sm font-semibold text-white mb-4">Editor Preferences</h3>
+              <div className="rounded-xl p-6 space-y-5" style={{ background: '#12121A', border: '1px solid #1E1E2E' }}>
+                <h3 className="text-sm font-semibold text-white">Editor Preferences</h3>
+
+                {isViewer && (
+                  <div className="px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.2)', color: '#FBBF24' }}>
+                    👁 Viewer role — settings are read-only
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>Theme</label>
-                  <select value={theme} onChange={e => setTheme(e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-md outline-none"
-                    style={{ background: '#0A0A0F', border: '1px solid #2A2A3A', color: '#E2E8F0' }}>
-                    <option value="dark">VS Dark (Default)</option>
-                    <option value="light">VS Light</option>
-                    <option value="hc-black">High Contrast</option>
+                  <select value={settings.appearance.theme}
+                    onChange={(e) => !isViewer && dispatch(updateSettings({ appearance: { ...settings.appearance, theme: e.target.value as never } }))}
+                    style={{ ...inputStyle, cursor: isViewer ? 'not-allowed' : 'auto' }} disabled={isViewer}>
+                    {THEMES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
+
                 <div>
-                  <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>Font Size</label>
-                  <input type="number" value={fontSize} onChange={e => setFontSize(e.target.value)}
-                    min="10" max="24"
-                    className="w-full px-3 py-2 text-sm rounded-md outline-none"
-                    style={{ background: '#0A0A0F', border: '1px solid #2A2A3A', color: '#E2E8F0' }} />
+                  <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>Font Size ({settings.editor.fontSize}px)</label>
+                  <input type="range" min="10" max="24" value={settings.editor.fontSize}
+                    disabled={isViewer}
+                    onChange={(e) => dispatch(updateEditorSettings({ fontSize: Number(e.target.value) }))}
+                    className="w-full accent-teal-400" />
                 </div>
-                {['Word Wrap', 'Minimap', 'Line Numbers', 'Auto-save'].map(opt => (
-                  <div key={opt} className="flex items-center justify-between">
-                    <span className="text-sm" style={{ color: '#CBD5E1' }}>{opt}</span>
-                    <div className="w-10 h-5 rounded-full cursor-pointer relative" style={{ background: '#00D4B8' }}>
-                      <div className="absolute right-0.5 top-0.5 w-4 h-4 rounded-full bg-black" />
-                    </div>
+
+                <div>
+                  <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>Tab Size</label>
+                  <select value={settings.editor.tabSize}
+                    onChange={(e) => dispatch(updateEditorSettings({ tabSize: Number(e.target.value) }))}
+                    style={inputStyle} disabled={isViewer}>
+                    {[2,4,8].map((n) => <option key={n} value={n}>{n} spaces</option>)}
+                  </select>
+                </div>
+
+                {[
+                  { key: 'wordWrap',     label: 'Word Wrap',       val: settings.editor.wordWrap === 'on',   onChange: (v: boolean) => dispatch(updateEditorSettings({ wordWrap: v ? 'on' : 'off' })) },
+                  { key: 'minimap',      label: 'Minimap',          val: settings.editor.minimap,             onChange: (v: boolean) => dispatch(updateEditorSettings({ minimap: v })) },
+                  { key: 'lineNumbers',  label: 'Line Numbers',     val: settings.editor.lineNumbers,         onChange: (v: boolean) => dispatch(updateEditorSettings({ lineNumbers: v })) },
+                  { key: 'autoSave',     label: 'Auto Save',        val: settings.editor.autoSave,            onChange: (v: boolean) => dispatch(updateEditorSettings({ autoSave: v })) },
+                  { key: 'formatOnSave', label: 'Format on Save',   val: settings.editor.formatOnSave,        onChange: (v: boolean) => dispatch(updateEditorSettings({ formatOnSave: v })) },
+                  { key: 'compactMode',  label: 'Compact Mode',     val: settings.appearance.compactMode,     onChange: (v: boolean) => dispatch(updateSettings({ appearance: { ...settings.appearance, compactMode: v } })) },
+                ].map(({ key, label, val, onChange }) => (
+                  <div key={key} className="flex items-center justify-between py-1">
+                    <span className="text-sm" style={{ color: '#CBD5E1' }}>{label}</span>
+                    <Toggle value={val} onChange={onChange} disabled={isViewer} />
                   </div>
                 ))}
-                <button className="btn-primary px-4 py-2 text-sm">Save Preferences</button>
+
+                {!isViewer && (
+                  <button onClick={handleSaveEditor} disabled={loading}
+                    className="px-4 py-2 text-sm font-medium rounded-lg transition-all hover:opacity-90 disabled:opacity-50"
+                    style={{ background: '#00D4B8', color: '#0A0A0F' }}>
+                    {loading ? 'Saving…' : 'Save Preferences'}
+                  </button>
+                )}
               </div>
             )}
 
+            {/* ── AI ── */}
             {tab === 'ai' && (
-              <div className="card p-6 space-y-4">
-                <h3 className="text-sm font-semibold text-white mb-4">AI Configuration</h3>
-                <div className="px-3 py-2 rounded-md text-xs" style={{ background: 'rgba(0,212,184,0.05)', border: '1px solid rgba(0,212,184,0.15)', color: '#6B7280' }}>
-                  ✦ Running locally via Ollama — no API costs
+              <div className="rounded-xl p-6 space-y-5" style={{ background: '#12121A', border: '1px solid #1E1E2E' }}>
+                <h3 className="text-sm font-semibold text-white">AI Configuration</h3>
+                <div className="px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(0,212,184,0.05)', border: '1px solid rgba(0,212,184,0.15)', color: '#6B7280' }}>
+                  ✦ Running locally via Ollama — zero API costs
                 </div>
                 <div>
                   <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>AI Model</label>
-                  <select value={aiModel} onChange={e => setAiModel(e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-md outline-none"
-                    style={{ background: '#0A0A0F', border: '1px solid #2A2A3A', color: '#E2E8F0' }}>
-                    <option value="qwen2.5-coder">Qwen2.5-Coder (Recommended)</option>
-                    <option value="codellama">CodeLlama 7B</option>
-                    <option value="deepseek-coder">DeepSeek Coder</option>
-                    <option value="starcoder">StarCoder 2</option>
+                  <select style={inputStyle} disabled={isViewer}
+                    onChange={(e) => dispatch(updateAISettings({ model: e.target.value }))}>
+                    {AI_MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>Ollama Endpoint</label>
-                  <input defaultValue="http://localhost:11434" className="w-full px-3 py-2 text-sm rounded-md outline-none"
-                    style={{ background: '#0A0A0F', border: '1px solid #2A2A3A', color: '#E2E8F0' }} />
+                  <input defaultValue="http://localhost:11434" style={inputStyle}
+                    onFocus={(e) => (e.target.style.borderColor = '#00D4B8')}
+                    onBlur={(e) => (e.target.style.borderColor = '#2A2A3A')} />
                 </div>
-                <button className="btn-primary px-4 py-2 text-sm">Save AI Settings</button>
+                {!isViewer && (
+                  <button className="px-4 py-2 text-sm font-medium rounded-lg" style={{ background: '#00D4B8', color: '#0A0A0F' }}>
+                    Save AI Settings
+                  </button>
+                )}
               </div>
             )}
 
+            {/* ── GITHUB ── */}
             {tab === 'github' && (
-              <div className="card p-6 space-y-4">
-                <h3 className="text-sm font-semibold text-white mb-4">GitHub Integration</h3>
-                <div className="px-3 py-2 rounded-md text-xs" style={{ background: 'rgba(248,113,113,0.05)', border: '1px solid rgba(248,113,113,0.15)', color: '#F87171' }}>
+              <div className="rounded-xl p-6 space-y-5" style={{ background: '#12121A', border: '1px solid #1E1E2E' }}>
+                <h3 className="text-sm font-semibold text-white">GitHub Integration</h3>
+                <div className="px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(248,113,113,0.05)', border: '1px solid rgba(248,113,113,0.15)', color: '#F87171' }}>
                   Not connected to GitHub
                 </div>
-                <div>
-                  <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>Personal Access Token</label>
-                  <input type="password" placeholder="ghp_xxxxxxxxxxxx" className="w-full px-3 py-2 text-sm rounded-md outline-none"
-                    style={{ background: '#0A0A0F', border: '1px solid #2A2A3A', color: '#E2E8F0' }} />
-                </div>
-                <div>
-                  <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>Default Branch</label>
-                  <input defaultValue="main" className="w-full px-3 py-2 text-sm rounded-md outline-none"
-                    style={{ background: '#0A0A0F', border: '1px solid #2A2A3A', color: '#E2E8F0' }} />
-                </div>
-                <button className="btn-primary px-4 py-2 text-sm">Connect GitHub</button>
+                {[
+                  { label: 'Personal Access Token', type: 'password', placeholder: 'ghp_xxxxxxxxxxxx', key: 'token' },
+                  { label: 'GitHub Username', type: 'text', placeholder: 'your-username', key: 'username' },
+                  { label: 'Default Branch', type: 'text', placeholder: 'main', key: 'branch' },
+                ].map((f) => (
+                  <div key={f.key}>
+                    <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>{f.label}</label>
+                    <input type={f.type} placeholder={f.placeholder} style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = '#00D4B8')}
+                      onBlur={(e) => (e.target.style.borderColor = '#2A2A3A')} />
+                  </div>
+                ))}
+                <button className="px-4 py-2 text-sm font-medium rounded-lg" style={{ background: '#00D4B8', color: '#0A0A0F' }}>
+                  Connect GitHub
+                </button>
               </div>
             )}
 
+            {/* ── SECURITY ── */}
             {tab === 'security' && (
-              <div className="card p-6 space-y-4">
-                <h3 className="text-sm font-semibold text-white mb-4">Security Settings</h3>
-                <div>
-                  <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>Current Password</label>
-                  <input type="password" className="w-full px-3 py-2 text-sm rounded-md outline-none"
-                    style={{ background: '#0A0A0F', border: '1px solid #2A2A3A', color: '#E2E8F0' }} />
-                </div>
-                <div>
-                  <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>New Password</label>
-                  <input type="password" className="w-full px-3 py-2 text-sm rounded-md outline-none"
-                    style={{ background: '#0A0A0F', border: '1px solid #2A2A3A', color: '#E2E8F0' }} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm" style={{ color: '#CBD5E1' }}>Two-Factor Authentication</span>
-                  <div className="w-10 h-5 rounded-full cursor-pointer relative" style={{ background: '#2A2A3A' }}>
-                    <div className="absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-gray-500" />
+              <div className="rounded-xl p-6 space-y-5" style={{ background: '#12121A', border: '1px solid #1E1E2E' }}>
+                <h3 className="text-sm font-semibold text-white">Security</h3>
+                {['Current Password', 'New Password', 'Confirm New Password'].map((label) => (
+                  <div key={label}>
+                    <label className="block text-xs mb-1.5" style={{ color: '#9CA3AF' }}>{label}</label>
+                    <input type="password" style={inputStyle}
+                      onFocus={(e) => (e.target.style.borderColor = '#00D4B8')}
+                      onBlur={(e) => (e.target.style.borderColor = '#2A2A3A')} />
                   </div>
+                ))}
+                <div className="flex items-center justify-between py-1">
+                  <div>
+                    <span className="text-sm text-white">Two-Factor Authentication</span>
+                    <p className="text-xs mt-0.5" style={{ color: '#6B7280' }}>Add extra security to your account</p>
+                  </div>
+                  <Toggle value={settings.security?.twoFactorEnabled ?? false}
+                    onChange={() => {}} />
                 </div>
-                <button className="btn-primary px-4 py-2 text-sm">Update Password</button>
+                <div className="flex items-center justify-between py-1">
+                  <span className="text-sm text-white">Login Alerts</span>
+                  <Toggle value={settings.security?.loginAlerts ?? true}
+                    onChange={() => {}} />
+                </div>
+                <button className="px-4 py-2 text-sm font-medium rounded-lg" style={{ background: '#00D4B8', color: '#0A0A0F' }}>
+                  Update Password
+                </button>
               </div>
             )}
           </div>

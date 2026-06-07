@@ -1,16 +1,17 @@
-// src/types/index.ts
+// ✅ UPDATED src/types/index.ts — added role helpers and RunOutput type
+
+export type UserRole = 'Admin' | 'Developer' | 'Viewer';
 
 export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'Admin' | 'Developer' | 'Viewer';
+  role: UserRole;
   avatar?: string;
   isEmailVerified: boolean;
   createdAt: string;
 }
 
-// Matches backend SafeProject
 export interface Project {
   id: string;
   name: string;
@@ -22,7 +23,6 @@ export interface Project {
   updatedAt: string;
 }
 
-// Matches backend SafeFile
 export interface ProjectFile {
   id: string;
   fileName: string;
@@ -33,7 +33,6 @@ export interface ProjectFile {
   updatedAt: string;
 }
 
-// Legacy FileNode kept for EditorPage/FileTree compatibility
 export interface FileNode {
   id: string;
   name: string;
@@ -57,3 +56,21 @@ export interface Stats {
   codeLines: number;
   hoursCoded: number;
 }
+
+export interface RunOutput {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  command: string;
+}
+
+// Role helpers
+export const canWrite  = (role?: UserRole) => role === 'Admin' || role === 'Developer';
+export const isAdmin   = (role?: UserRole) => role === 'Admin';
+export const isViewer  = (role?: UserRole) => role === 'Viewer';
+
+export const ROLE_COLORS: Record<UserRole, string> = {
+  Admin: '#F87171',
+  Developer: '#00D4B8',
+  Viewer: '#FBBF24',
+};
