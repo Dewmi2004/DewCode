@@ -14,11 +14,14 @@ import {
   fetchFiles, setActiveFile, closeFile,
   createFile, updateFile, deleteFile, patchFileContent,
 } from '../../store/slices/projectSlice';
-import { FileNode } from '../../types';
+import { FileNode, CodeCorrection, CodeSuggestion } from '../../types';
 import Terminal from '../terminal/Terminal';
 import AIAssistant from '../ai/AIAssistant';
+import CodeCorrections from './CodeCorrections';
+import CodeSuggestions from './CodeSuggestions';
 import TopBar from '../layout/TopBar';
 import apiFetch from '../../services/api';
+import { aiApi } from '../../services/aiApi';
 
 // ── Language map ──────────────────────────────────────────────────────────
 const LANG_MAP: Record<string, string> = {
@@ -176,6 +179,13 @@ const EditorPage: React.FC = () => {
   const [aiContext,    setAiContext]     = useState('');
   const [runOutput,    setRunOutput]    = useState<{ out: string; err: string; running: boolean } | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  // NEW: Code Corrections & Suggestions
+  const [showCorrections, setShowCorrections] = useState(false);
+  const [corrections, setCorrections] = useState<CodeCorrection | null>(null);
+  const [correctionsLoading, setCorrectionsLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<CodeSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [activePanel, setActivePanel] = useState<'ai' | 'corrections' | null>('ai');
   const monacoRef = useRef<Monaco | null>(null);
 
   useEffect(() => {
@@ -348,8 +358,66 @@ const EditorPage: React.FC = () => {
       generate: `Improve or extend this code:\n\n\`\`\`${getLang(activeFile.fileName)}\n${activeFile.content}\n\`\`\``,
     };
     setAiContext(prompts[action]);
-    if (!showAI) setShowAI(true);
+    if (!showAI) setShowAI(true);    setActivePanel('ai');
   };
+
+  // ── Analyze code for corrections ───────────────────────────────────
+  const handleAnalyzeCorrections = async () => {
+    if (!activeFile) return;
+    setCorrectionsLoading(true);
+    setShowCorrections(true);
+    setActivePanel('corrections');
+    try {
+      const result = await aiApi.correctCode(
+        activeFile.content,
+        getLang(activeFile.fileName)
+      );
+      setCorrections(result);
+    } catch (err) {
+      console.error('Error analyzing corrections:', err);
+      setCorrections({
+        issues: [{ type: 'error', message: 'Failed to analyze code. Make sure Ollama is running.' }],
+        correctedCode: activeFile.content,
+        explanation: 'Error occurred while analyzing your code.',
+      });
+    } finally {
+      setCorrectionsLoading(false);
+    }
+  };
+
+  // ── Get inline suggestions ─────────────────────────────────────────
+  const handleGetSuggestions = async () => {
+    if (!activeFile) return;
+    setSuggestionsLoading(true);
+    setShowCorrections(true);
+    setActivePanel('corrections');
+    try {
+      const result = await aiApi.suggestCode(
+        activeFile.content,
+        getLang(activeFile.fileName)
+      );
+      setSuggestions(result);
+    } catch (err) {
+      console.error('Error getting suggestions:', err);
+      setSuggestions([]);
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
+  // ── Apply corrected code ───────────────────────────────────────────
+  const handleApplyCorrectedCode = (correctedCode: string) => {
+    if (!activeFile) return;
+    dispatch(patchFileContent({ id: activeFile.id, content: correctedCode }));
+    setDirty((d) => ({ ...d, [activeFile.id]: true }));
+  };
+
+  // ── Select and insert suggestion ───────────────────────────────────
+  const handleSelectSuggestion = (suggestion: CodeSuggestion) => {
+    if (!activeFile) return;
+    const newContent = activeFile.content + '\n' + suggestion.text;
+    dispatch(patchFileContent({ id: activeFile.id, content: newContent }));
+    setDirty((d) => ({ ...d, [activeFile.id]: true }));  };
 
   // Ctrl+S / Ctrl+Shift+S / F5 run
   useEffect(() => {
@@ -461,6 +529,22 @@ const EditorPage: React.FC = () => {
               </div>
             )}
 
+            {/* Code Correction buttons */}
+            {activeFile && (
+              <div className="flex gap-1">
+                <button onClick={handleAnalyzeCorrections}
+                  className="px-2 py-1 text-xs rounded transition-all"
+                  style={{ background: 'rgba(168,85,247,0.1)', color: '#A855F7', border: '1px solid rgba(168,85,247,0.3)' }}>
+                  🔍 Analyze
+                </button>
+                <button onClick={handleGetSuggestions}
+                  className="px-2 py-1 text-xs rounded transition-all"
+                  style={{ background: 'rgba(59,130,246,0.1)', color: '#3B82F6', border: '1px solid rgba(59,130,246,0.3)' }}>
+                  💡 Suggest
+                </button>
+              </div>
+            )}
+
             {/* Run button */}
             {activeFile && (
               <button onClick={handleRun}
@@ -486,9 +570,20 @@ const EditorPage: React.FC = () => {
               style={{ background: showTerminal ? '#00D4B8' : '#1A1A26', color: showTerminal ? '#0A0A0F' : '#9CA3AF', border: '1px solid #2A2A3A' }}>
               &gt;_
             </button>
-            <button onClick={() => setShowAI(!showAI)}
+            <button onClick={() => {
+              setShowCorrections(!showCorrections);
+              if (!showCorrections) setActivePanel('corrections');
+            }}
               className="px-3 py-1.5 text-xs rounded-md font-medium transition-all"
-              style={{ background: showAI ? 'rgba(0,212,184,0.15)' : '#1A1A26', color: showAI ? '#00D4B8' : '#9CA3AF', border: showAI ? '1px solid rgba(0,212,184,0.3)' : '1px solid #2A2A3A' }}>
+              style={{ background: activePanel === 'corrections' ? 'rgba(168,85,247,0.15)' : '#1A1A26', color: activePanel === 'corrections' ? '#A855F7' : '#9CA3AF', border: activePanel === 'corrections' ? '1px solid rgba(168,85,247,0.3)' : '1px solid #2A2A3A' }}>
+              🔍 Corrections
+            </button>
+            <button onClick={() => {
+              setShowAI(!showAI);
+              if (!showAI) setActivePanel('ai');
+            }}
+              className="px-3 py-1.5 text-xs rounded-md font-medium transition-all"
+              style={{ background: activePanel === 'ai' ? 'rgba(0,212,184,0.15)' : '#1A1A26', color: activePanel === 'ai' ? '#00D4B8' : '#9CA3AF', border: activePanel === 'ai' ? '1px solid rgba(0,212,184,0.3)' : '1px solid #2A2A3A' }}>
               ✦ AI
             </button>
           </div>
@@ -673,9 +768,29 @@ const EditorPage: React.FC = () => {
         </div>
 
         {/* ── AI Panel ───────────────────────────────────────────────── */}
-        {showAI && (
-          <div className="w-72 border-l overflow-hidden" style={{ borderColor: '#1A1A26' }}>
-            <AIAssistant compact initialMessage={aiContext} onContextConsumed={() => setAiContext('')} />
+        {(showAI || showCorrections) && (
+          <div className="w-72 border-l overflow-y-auto" style={{ borderColor: '#1A1A26', background: '#0A0A0F' }}>
+            {activePanel === 'ai' && showAI && (
+              <AIAssistant compact initialMessage={aiContext} onContextConsumed={() => setAiContext('')} />
+            )}
+            {activePanel === 'corrections' && showCorrections && (
+              <div className="p-4 space-y-4">
+                {suggestions.length > 0 && (
+                  <CodeSuggestions
+                    suggestions={suggestions}
+                    onSelectSuggestion={handleSelectSuggestion}
+                    loading={suggestionsLoading}
+                  />
+                )}
+                {corrections && (
+                  <CodeCorrections
+                    correction={corrections}
+                    onApplyCorrectedCode={handleApplyCorrectedCode}
+                    loading={correctionsLoading}
+                  />
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

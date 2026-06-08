@@ -64,6 +64,26 @@ export interface RunOutput {
   command: string;
 }
 
+// Code Correction & Suggestion types
+export interface CodeIssue {
+  type: 'error' | 'warning' | 'suggestion';
+  line?: number;
+  column?: number;
+  message: string;
+  fix?: string;
+}
+
+export interface CodeCorrection {
+  issues: CodeIssue[];
+  correctedCode: string;
+  explanation: string;
+}
+
+export interface CodeSuggestion {
+  text: string;
+  description: string;
+}
+
 // Role helpers
 export const canWrite  = (role?: UserRole) => role === 'Admin' || role === 'Developer';
 export const isAdmin   = (role?: UserRole) => role === 'Admin';

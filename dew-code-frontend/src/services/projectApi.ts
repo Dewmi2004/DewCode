@@ -26,7 +26,7 @@ export const projectApi = {
 
   update: (id: string, data: Partial<{ name: string; description: string; language: string; status: string }>) =>
     apiFetch<ApiResponse<{ project: unknown }>>(`/api/projects/${id}`, {
-      method: 'PUT',
+      method: 'PATCH',
       body: JSON.stringify(data),
     }),
 
@@ -47,11 +47,11 @@ export const fileApi = {
     apiFetch<ApiResponse<{ files: unknown[]; count: number }>>(`/api/files/project/${projectId}`),
 
   getById: (id: string) =>
-    apiFetch<ApiResponse<{ file: unknown }>>(`/api/files/single/${id}`),
+    apiFetch<ApiResponse<{ file: unknown }>>(`/api/files/${id}`),
 
   update: (id: string, data: Partial<{ fileName: string; content: string; language: string }>) =>
     apiFetch<ApiResponse<{ file: unknown }>>(`/api/files/${id}`, {
-      method: 'PUT',
+      method: 'PATCH',
       body: JSON.stringify(data),
     }),
 

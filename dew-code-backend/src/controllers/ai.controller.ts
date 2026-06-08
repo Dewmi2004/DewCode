@@ -1,25 +1,16 @@
-// ✅ Day 8 → OLLAMA SETUP  +  Day 9 → AI API
-// POST /api/ai/prompt → forwards prompt to Ollama → returns response
-//
-// Setup:
-//   ollama run qwen2.5-coder
-//   OLLAMA_URL=http://localhost:11434  (set in .env)
+// ✅ FIXED ai.controller.ts — uses qwen2.5-coder:1.5b, reduced token limits
 
 import { Request, Response, NextFunction } from 'express';
 import { sendSuccess, sendError } from '../utils/response';
 
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5-coder';
+const OLLAMA_URL    = process.env.OLLAMA_URL    || 'http://localhost:11434';
+const DEFAULT_MODEL = process.env.OLLAMA_MODEL  || 'qwen2.5-coder:1.5b'; // ✅ small fast model
 
 interface OllamaGenerateRequest {
   model: string;
   prompt: string;
   stream: boolean;
-  options?: {
-    temperature?: number;
-    top_p?: number;
-    num_predict?: number;
-  };
+  options?: { temperature?: number; top_p?: number; num_predict?: number };
 }
 
 interface OllamaGenerateResponse {
@@ -31,7 +22,6 @@ interface OllamaGenerateResponse {
 }
 
 // ── POST /api/ai/prompt ───────────────────────────────────────────────────
-// Body: { prompt: string, model?: string, temperature?: number }
 export const generateAIResponse = async (
   req: Request,
   res: Response,
@@ -40,10 +30,7 @@ export const generateAIResponse = async (
   try {
     const { prompt, model, temperature = 0.7 } = req.body;
 
-    if (!prompt?.trim()) {
-      sendError(res, 'Prompt is required.', 400);
-      return;
-    }
+    if (!prompt?.trim()) { sendError(res, 'Prompt is required.', 400); return; }
 
     const selectedModel = model?.trim() || DEFAULT_MODEL;
 
@@ -54,7 +41,7 @@ export const generateAIResponse = async (
       options: {
         temperature,
         top_p: 0.9,
-        num_predict: 2048,
+        num_predict: 512, // ✅ reduced from 2048 — fast responses
       },
     };
 
@@ -62,7 +49,7 @@ export const generateAIResponse = async (
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ollamaPayload),
-      signal: AbortSignal.timeout(120_000), // 2 minute timeout for large models
+      signal: AbortSignal.timeout(60_000), // ✅ reduced from 120s to 60s
     });
 
     if (!ollamaResponse.ok) {
@@ -78,14 +65,11 @@ export const generateAIResponse = async (
       response: data.response,
       model: data.model,
       done: data.done,
-      stats: {
-        totalDuration: data.total_duration,
-        evalCount: data.eval_count,
-      },
+      stats: { totalDuration: data.total_duration, evalCount: data.eval_count },
     });
   } catch (error: unknown) {
     if ((error as { name?: string }).name === 'TimeoutError') {
-      sendError(res, 'AI request timed out. The model may be loading — try again.', 504);
+      sendError(res, 'AI request timed out. Try: ollama pull qwen2.5-coder:1.5b', 504);
       return;
     }
     if ((error as { cause?: { code?: string } }).cause?.code === 'ECONNREFUSED') {
@@ -97,7 +81,6 @@ export const generateAIResponse = async (
 };
 
 // ── GET /api/ai/models ────────────────────────────────────────────────────
-// Returns list of locally available Ollama models
 export const listModels = async (
   req: Request,
   res: Response,
@@ -107,18 +90,12 @@ export const listModels = async (
     const ollamaResponse = await fetch(`${OLLAMA_URL}/api/tags`, {
       signal: AbortSignal.timeout(5_000),
     });
-
-    if (!ollamaResponse.ok) {
-      sendError(res, 'Could not fetch models from Ollama.', 502);
-      return;
-    }
-
+    if (!ollamaResponse.ok) { sendError(res, 'Could not fetch models from Ollama.', 502); return; }
     const data = await ollamaResponse.json() as { models: Array<{ name: string; size: number; modified_at: string }> };
     sendSuccess(res, 'Models fetched.', { models: data.models ?? [] });
   } catch (error: unknown) {
     if ((error as { cause?: { code?: string } }).cause?.code === 'ECONNREFUSED') {
-      sendError(res, 'Cannot connect to Ollama. Run: ollama serve', 503);
-      return;
+      sendError(res, 'Cannot connect to Ollama. Run: ollama serve', 503); return;
     }
     next(error);
   }
@@ -131,11 +108,116 @@ export const checkOllamaHealth = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const ollamaResponse = await fetch(`${OLLAMA_URL}/`, {
-      signal: AbortSignal.timeout(3_000),
-    });
+    const ollamaResponse = await fetch(`${OLLAMA_URL}/`, { signal: AbortSignal.timeout(3_000) });
     sendSuccess(res, 'Ollama is running.', { status: ollamaResponse.ok ? 'online' : 'error' });
   } catch {
     sendError(res, 'Ollama is offline. Run: ollama serve', 503);
+  }
+};
+
+// ── POST /api/ai/correct ──────────────────────────────────────────────────
+export const correctCode = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { code, language, model } = req.body;
+    if (!code?.trim()) { sendError(res, 'Code is required.', 400); return; }
+
+    const selectedModel = model?.trim() || DEFAULT_MODEL;
+
+    const correctionPrompt = `Fix any bugs in this ${language || 'code'}. Reply ONLY with JSON:
+{"issues":[{"type":"error|warning","line":1,"message":"description"}],"correctedCode":"fixed code","explanation":"summary"}
+
+Code:
+\`\`\`${language || ''}
+${code}
+\`\`\``;
+
+    const ollamaResponse = await fetch(`${OLLAMA_URL}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: selectedModel,
+        prompt: correctionPrompt,
+        stream: false,
+        options: { temperature: 0.2, top_p: 0.9, num_predict: 800 }, // ✅ reduced from 3000
+      } satisfies OllamaGenerateRequest),
+      signal: AbortSignal.timeout(60_000), // ✅ reduced from 120s
+    });
+
+    if (!ollamaResponse.ok) {
+      sendError(res, `Ollama error: ${ollamaResponse.statusText}`, 502); return;
+    }
+
+    const data = (await ollamaResponse.json()) as OllamaGenerateResponse;
+    let parsedResponse = { issues: [] as unknown[], correctedCode: code, explanation: data.response };
+
+    try {
+      const jsonMatch = data.response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) parsedResponse = JSON.parse(jsonMatch[0]);
+    } catch { console.warn('[AI] Could not parse correction JSON'); }
+
+    sendSuccess(res, 'Code correction generated.', parsedResponse);
+  } catch (error: unknown) {
+    if ((error as { name?: string }).name === 'TimeoutError') {
+      sendError(res, 'Code correction timed out.', 504); return;
+    }
+    next(error);
+  }
+};
+
+// ── POST /api/ai/suggest ──────────────────────────────────────────────────
+export const suggestCode = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { code, language, line = 1, model } = req.body;
+    if (!code?.trim()) { sendError(res, 'Code is required.', 400); return; }
+
+    const selectedModel = model?.trim() || DEFAULT_MODEL;
+
+    const lines = code.split('\n');
+    const context = lines.slice(Math.max(0, Number(line) - 4), Math.min(lines.length, Number(line) + 2)).join('\n');
+
+    const suggestionPrompt = `Complete this ${language || 'code'}. Reply ONLY with JSON:
+{"suggestions":[{"text":"snippet","description":"what it does"}]}
+
+Context:
+\`\`\`${language || ''}
+${context}
+\`\`\``;
+
+    const ollamaResponse = await fetch(`${OLLAMA_URL}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: selectedModel,
+        prompt: suggestionPrompt,
+        stream: false,
+        options: { temperature: 0.4, top_p: 0.9, num_predict: 200 }, // ✅ reduced from 500
+      } satisfies OllamaGenerateRequest),
+      signal: AbortSignal.timeout(30_000), // ✅ reduced from 60s
+    });
+
+    if (!ollamaResponse.ok) { sendError(res, `Ollama error: ${ollamaResponse.statusText}`, 502); return; }
+
+    const data = (await ollamaResponse.json()) as OllamaGenerateResponse;
+    let suggestions: Array<{ text: string; description: string }> = [];
+
+    try {
+      const jsonMatch = data.response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) suggestions = (JSON.parse(jsonMatch[0]) as { suggestions?: typeof suggestions }).suggestions ?? [];
+    } catch { console.warn('[AI] Could not parse suggestions JSON'); }
+
+    sendSuccess(res, 'Code suggestions generated.', { suggestions });
+  } catch (error: unknown) {
+    if ((error as { name?: string }).name === 'TimeoutError') {
+      sendError(res, 'Suggestion timed out.', 504); return;
+    }
+    next(error);
   }
 };
