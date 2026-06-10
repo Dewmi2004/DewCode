@@ -1,11 +1,7 @@
-// ✅ UPDATED EditorPage.tsx
-// New features:
-//   - IntelliSense / Suggestions fully enabled (Monaco completionProvider)
-//   - Run / Compile button → sends code to /api/terminal/execute
-//   - Folder system in file explorer (create folders, nested files)
-//   - Context menu: rename, delete, new file in folder
-//   - Settings-driven editor options (font size, theme, minimap etc.)
-//   - Role-based UI: Viewers cannot edit/save/delete
+// ✅ FIXED EditorPage.tsx
+// Key fix: handleRun now sends { fileName, content } to the backend
+// instead of building a broken shell command string.
+// The backend writes the file to disk and runs it in Docker.
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Editor, { Monaco } from '@monaco-editor/react';
@@ -28,7 +24,8 @@ const LANG_MAP: Record<string, string> = {
   js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
   py: 'python', json: 'json', md: 'markdown', html: 'html', css: 'css',
   scss: 'scss', rs: 'rust', go: 'go', java: 'java', txt: 'plaintext',
-  sh: 'shell', yml: 'yaml', yaml: 'yaml', xml: 'xml', sql: 'sql', c: 'c', cpp: 'cpp',
+  sh: 'shell', yml: 'yaml', yaml: 'yaml', xml: 'xml', sql: 'sql',
+  c: 'c', cpp: 'cpp', rb: 'ruby', php: 'php',
 };
 
 const getLang = (name: string) => {
@@ -42,68 +39,20 @@ const getFileIcon = (name: string): string => {
     ts: '🔷', tsx: '⚛️', js: '🟡', jsx: '⚛️', json: '📋',
     py: '🐍', java: '☕', go: '🐹', rs: '🦀', html: '🌐',
     css: '🎨', scss: '🎨', md: '📝', sh: '💲', yml: '⚙️', yaml: '⚙️',
-    c: '©️', cpp: '➕', sql: '🗄️',
+    c: '©️', cpp: '➕', sql: '🗄️', rb: '💎', php: '🐘',
   };
   return icons[ext] || '📄';
 };
 
-// ── Run command builder ───────────────────────────────────────────────────
-const getRunCommand = (fileName: string, content: string): string | null => {
-  const ext = fileName.split('.').pop()?.toLowerCase() || '';
-  const escapeCmd = (str: string) => str.replace(/"/g, '\\"').replace(/\n/g, '\\n');
-  
-  switch (ext) {
-    // Scripting languages
-    case 'js':    return `node -e "${escapeCmd(content)}"`;
-    case 'ts':    return `npx ts-node --eval "${escapeCmd(content)}"`;
-    case 'py':    return `python -c "${escapeCmd(content)}"`;
-    case 'rb':    return `ruby -e "${escapeCmd(content)}"`;
-    case 'php':   return `php -r "${escapeCmd(content)}"`;
-    case 'pl':    return `perl -e "${escapeCmd(content)}"`;
-    case 'sh':    return content;
-    case 'bash':  return content;
-    case 'zsh':   return content;
-    
-    // Compiled languages (write to temp file, compile, run)
-    case 'java': {
-      const className = fileName.replace('.java', '');
-      return `javac ${fileName} && java ${className}`;
-    }
-    case 'c': {
-      const name = fileName.replace('.c', '');
-      return `gcc ${fileName} -o ${name} && ./${name}`;
-    }
-    case 'cpp': {
-      const name = fileName.replace('.cpp', '');
-      return `g++ ${fileName} -o ${name} && ./${name}`;
-    }
-    case 'cc': {
-      const name = fileName.replace('.cc', '');
-      return `g++ ${fileName} -o ${name} && ./${name}`;
-    }
-    case 'rs': {
-      return `rustc ${fileName} && ./${fileName.replace('.rs', '')}`;
-    }
-    case 'go': {
-      return `go run ${fileName}`;
-    }
-    
-    // Other languages
-    case 'md':
-    case 'html':
-    case 'css':
-    case 'json':
-    case 'xml':
-    case 'yaml':
-    case 'yml':
-    case 'sql':
-      return null; // These don't have executable output
-    
-    default: return null;
-  }
-};
+// Files that can be executed
+const RUNNABLE_EXTS = new Set([
+  'js','mjs','ts','tsx','py','java','c','cpp','cc','go','rs','sh','bash','rb','php',
+]);
 
-// Theme map: settings theme → Monaco theme
+const canRunFile = (fileName: string): boolean =>
+  RUNNABLE_EXTS.has(fileName.split('.').pop()?.toLowerCase() ?? '');
+
+// Monaco theme map
 const MONACO_THEMES: Record<string, string> = {
   dark: 'vs-dark', light: 'light', 'hc-black': 'hc-black',
   solarized: 'vs-dark', monokai: 'vs-dark', dracula: 'vs-dark', nord: 'vs-dark',
@@ -111,31 +60,20 @@ const MONACO_THEMES: Record<string, string> = {
 
 type DirtyMap = Record<string, boolean>;
 
-// ── Folder node for virtual file tree ────────────────────────────────────
 interface FolderNode {
-  id: string;
-  name: string;
-  type: 'folder';
-  children: Array<FolderNode | FileLeafNode>;
-  path: string;
+  id: string; name: string; type: 'folder';
+  children: Array<FolderNode | FileLeafNode>; path: string;
 }
-interface FileLeafNode {
-  id: string;
-  name: string;
-  type: 'file';
-  path: string;
-}
+interface FileLeafNode { id: string; name: string; type: 'file'; path: string; }
 
 const buildTree = (fileNames: Array<{ id: string; fileName: string }>): Array<FolderNode | FileLeafNode> => {
   const root: Array<FolderNode | FileLeafNode> = [];
   const folderMap: Record<string, FolderNode> = {};
-
   fileNames.forEach(({ id, fileName }) => {
     const parts = fileName.split('/');
     if (parts.length === 1) {
       root.push({ id, name: fileName, type: 'file', path: fileName });
     } else {
-      // Build/find folder nodes
       let current = root;
       let currentPath = '';
       for (let i = 0; i < parts.length - 1; i++) {
@@ -149,43 +87,51 @@ const buildTree = (fileNames: Array<{ id: string; fileName: string }>): Array<Fo
         }
         current = folder.children as Array<FolderNode | FileLeafNode>;
       }
-      const leaf = parts[parts.length - 1];
-      current.push({ id, name: leaf, type: 'file', path: fileName });
+      current.push({ id, name: parts[parts.length - 1], type: 'file', path: fileName });
     }
   });
-
   return root;
 };
 
-// ── Main Component ────────────────────────────────────────────────────────
+// ── Run output state ───────────────────────────────────────────────────────
+interface RunState {
+  running: boolean;
+  stdout:  string;
+  stderr:  string;
+  exitCode: number | null;
+  fileName: string;
+}
+
 const EditorPage: React.FC = () => {
   const dispatch = useAppDispatch();
   const { activeProject, files, openFiles, activeFile, filesLoading } = useAppSelector((s) => s.projects);
-  const { user } = useAppSelector((s) => s.auth);
-  const settings = useAppSelector((s) => s.settings.settings);
+  const { user }     = useAppSelector((s) => s.auth);
+  const settings     = useAppSelector((s) => s.settings.settings);
 
-  // Role guards
   const isViewer = user?.role === 'Viewer';
   const canEdit  = !isViewer;
 
-  const [showTerminal, setShowTerminal] = useState(true);
-  const [showAI,       setShowAI]       = useState(true);
-  const [newFileName,  setNewFileName]  = useState('');
-  const [showNewFile,  setShowNewFile]  = useState(false);
-  const [newFileParent, setNewFileParent] = useState('');
-  const [dirty,        setDirty]        = useState<DirtyMap>({});
-  const [saveStatus,   setSaveStatus]   = useState<'idle'|'saving'|'saved'|'error'>('idle');
-  const [contextMenu,  setContextMenu]  = useState<{ x: number; y: number; fileId: string; type: 'file'|'folder'; folderPath?: string } | null>(null);
-  const [aiContext,    setAiContext]     = useState('');
-  const [runOutput,    setRunOutput]    = useState<{ out: string; err: string; running: boolean } | null>(null);
+  const [showTerminal,   setShowTerminal]   = useState(true);
+  const [showAI,         setShowAI]         = useState(true);
+  const [newFileName,    setNewFileName]    = useState('');
+  const [showNewFile,    setShowNewFile]    = useState(false);
+  const [newFileParent,  setNewFileParent]  = useState('');
+  const [dirty,          setDirty]          = useState<DirtyMap>({});
+  const [saveStatus,     setSaveStatus]     = useState<'idle'|'saving'|'saved'|'error'>('idle');
+  const [contextMenu,    setContextMenu]    = useState<{ x: number; y: number; fileId: string; type: 'file'|'folder'; folderPath?: string } | null>(null);
+  const [aiContext,      setAiContext]       = useState('');
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
-  // NEW: Code Corrections & Suggestions
   const [showCorrections, setShowCorrections] = useState(false);
-  const [corrections, setCorrections] = useState<CodeCorrection | null>(null);
+  const [corrections,     setCorrections]     = useState<CodeCorrection | null>(null);
   const [correctionsLoading, setCorrectionsLoading] = useState(false);
-  const [suggestions, setSuggestions] = useState<CodeSuggestion[]>([]);
+  const [suggestions,    setSuggestions]    = useState<CodeSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [activePanel, setActivePanel] = useState<'ai' | 'corrections' | null>('ai');
+  const [activePanel,    setActivePanel]    = useState<'ai' | 'corrections' | null>('ai');
+
+  // ✅ NEW unified run state
+  const [runState, setRunState] = useState<RunState | null>(null);
+  const [showRunOutput, setShowRunOutput] = useState(false);
+
   const monacoRef = useRef<Monaco | null>(null);
 
   useEffect(() => {
@@ -194,78 +140,25 @@ const EditorPage: React.FC = () => {
 
   const tree = buildTree(files.map((f) => ({ id: f.id, fileName: f.fileName })));
 
-  // ── Handle editor mount — register extra IntelliSense ────────────────
   const handleEditorMount = (_editor: unknown, monaco: Monaco) => {
     monacoRef.current = monaco;
-
-    // Register DewCode custom snippets for TypeScript/JavaScript
     monaco.languages.registerCompletionItemProvider('typescript', {
       provideCompletionItems: (model: any, position: any) => {
-        const word = model.getWordUntilPosition(position);
-        const range = {
-          startLineNumber: position.lineNumber,
-          endLineNumber: position.lineNumber,
-          startColumn: word.startColumn,
-          endColumn: word.endColumn,
-        };
-        const suggestions = [
-          {
-            label: 'rfc',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'const ${1:ComponentName}: React.FC = () => {\n  return (\n    <div>\n      ${2}\n    </div>\n  );\n};\n\nexport default ${1:ComponentName};',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'React Functional Component',
-            range,
-          },
-          {
-            label: 'useState',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'const [${1:state}, set${1/(.*)/${1:/capitalize}/}] = useState<${2:type}>(${3:initialValue});',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'React useState hook',
-            range,
-          },
-          {
-            label: 'useEffect',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'useEffect(() => {\n  ${1}\n  return () => {\n    ${2}\n  };\n}, [${3}]);',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'React useEffect hook',
-            range,
-          },
-          {
-            label: 'asyncfn',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'const ${1:functionName} = async (${2:params}): Promise<${3:void}> => {\n  try {\n    ${4}\n  } catch (error) {\n    console.error(error);\n  }\n};',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'Async function with try/catch',
-            range,
-          },
-        ];
-        return { suggestions };
+        const word  = model.getWordUntilPosition(position);
+        const range = { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: word.startColumn, endColumn: word.endColumn };
+        return { suggestions: [
+          { label: 'rfc',       kind: monaco.languages.CompletionItemKind.Snippet, insertText: 'const ${1:ComponentName}: React.FC = () => {\n  return (\n    <div>\n      ${2}\n    </div>\n  );\n};\n\nexport default ${1:ComponentName};', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: 'React Functional Component', range },
+          { label: 'useState',  kind: monaco.languages.CompletionItemKind.Snippet, insertText: 'const [${1:state}, set${1/(.*)/${1:/capitalize}/}] = useState<${2:type}>(${3:initialValue});', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: 'React useState hook', range },
+          { label: 'useEffect', kind: monaco.languages.CompletionItemKind.Snippet, insertText: 'useEffect(() => {\n  ${1}\n  return () => {\n    ${2}  };\n}, [${3}]);', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: 'React useEffect hook', range },
+          { label: 'asyncfn',   kind: monaco.languages.CompletionItemKind.Snippet, insertText: 'const ${1:fn} = async (${2}): Promise<${3:void}> => {\n  try {\n    ${4}\n  } catch (error) {\n    console.error(error);\n  }\n};', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: 'Async function with try/catch', range },
+        ]};
       },
     });
-
-    // Mirror for JS
     monaco.languages.registerCompletionItemProvider('javascript', {
       provideCompletionItems: (model: any, position: any) => {
-        const word = model.getWordUntilPosition(position);
-        const range = {
-          startLineNumber: position.lineNumber,
-          endLineNumber: position.lineNumber,
-          startColumn: word.startColumn,
-          endColumn: word.endColumn,
-        };
-        return {
-          suggestions: [{
-            label: 'clg',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'console.log(${1});',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'console.log snippet',
-            range,
-          }],
-        };
+        const word  = model.getWordUntilPosition(position);
+        const range = { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: word.startColumn, endColumn: word.endColumn };
+        return { suggestions: [{ label: 'clg', kind: monaco.languages.CompletionItemKind.Snippet, insertText: 'console.log(${1});', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: 'console.log', range }] };
       },
     });
   };
@@ -296,15 +189,12 @@ const EditorPage: React.FC = () => {
       setDirty((d) => ({ ...d, [activeFile.id]: false }));
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
-    } catch {
-      setSaveStatus('error');
-    }
+    } catch { setSaveStatus('error'); }
   }, [activeFile, dirty, dispatch, canEdit]);
 
   const handleSaveAll = async () => {
     if (!canEdit) return;
-    const dirtyFiles = openFiles.filter((f) => dirty[f.id]);
-    for (const f of dirtyFiles) {
+    for (const f of openFiles.filter((f) => dirty[f.id])) {
       await dispatch(updateFile({ id: f.id, data: { content: f.content } }));
       setDirty((d) => ({ ...d, [f.id]: false }));
     }
@@ -316,9 +206,7 @@ const EditorPage: React.FC = () => {
     if (!newFileName.trim() || !activeProject || !canEdit) return;
     const fullName = newFileParent ? `${newFileParent}/${newFileName.trim()}` : newFileName.trim();
     await dispatch(createFile({ fileName: fullName, content: '', projectId: activeProject.id }));
-    setNewFileName('');
-    setShowNewFile(false);
-    setNewFileParent('');
+    setNewFileName(''); setShowNewFile(false); setNewFileParent('');
   };
 
   const handleDeleteFile = async (fileId: string) => {
@@ -327,29 +215,50 @@ const EditorPage: React.FC = () => {
     setContextMenu(null);
   };
 
-  // ── Run / Compile ─────────────────────────────────────────────────────
+  // ✅ FIXED handleRun — sends { fileName, content } not a shell command
   const handleRun = async () => {
     if (!activeFile) return;
-    const cmd = getRunCommand(activeFile.fileName, activeFile.content);
-    if (!cmd) {
-      setRunOutput({ out: '', err: `Cannot run "${activeFile.fileName}" directly. Supported: .js .ts .py .sh`, running: false });
+
+    if (!canRunFile(activeFile.fileName)) {
+      setRunState({ running: false, stdout: '', stderr: `Cannot run "${activeFile.fileName}" directly.\nRunnable: .js .ts .py .java .c .cpp .go .rs .sh`, exitCode: 1, fileName: activeFile.fileName });
+      setShowRunOutput(true);
       setShowTerminal(true);
       return;
     }
-    setRunOutput({ out: '', err: '', running: true });
+
+    setRunState({ running: true, stdout: '', stderr: '', exitCode: null, fileName: activeFile.fileName });
+    setShowRunOutput(true);
     setShowTerminal(true);
+
     try {
-      const resp = await apiFetch<{ success: boolean; data: { stdout: string; stderr: string } }>(
+      const resp = await apiFetch<{ success: boolean; data: { stdout: string; stderr: string; exitCode: number }; message?: string }>(
         '/api/terminal/execute',
-        { method: 'POST', body: JSON.stringify({ command: cmd }) }
+        {
+          method: 'POST',
+          // ✅ Send fileName + content — backend writes file to disk and runs it
+          body: JSON.stringify({
+            fileName: activeFile.fileName,
+            content:  activeFile.content,
+          }),
+        }
       );
-      setRunOutput({ out: resp.data?.stdout || '', err: resp.data?.stderr || '', running: false });
+
+      if (resp.success && resp.data) {
+        setRunState({
+          running:  false,
+          stdout:   resp.data.stdout || '',
+          stderr:   resp.data.stderr || '',
+          exitCode: resp.data.exitCode,
+          fileName: activeFile.fileName,
+        });
+      } else {
+        setRunState({ running: false, stdout: '', stderr: resp.message || 'Execution failed.', exitCode: 1, fileName: activeFile.fileName });
+      }
     } catch (e: unknown) {
-      setRunOutput({ out: '', err: String(e), running: false });
+      setRunState({ running: false, stdout: '', stderr: String(e), exitCode: 1, fileName: activeFile.fileName });
     }
   };
 
-  // ── Send to AI ────────────────────────────────────────────────────────
   const handleSendToAI = (action: 'explain' | 'fix' | 'generate') => {
     if (!activeFile) return;
     const prompts = {
@@ -358,68 +267,42 @@ const EditorPage: React.FC = () => {
       generate: `Improve or extend this code:\n\n\`\`\`${getLang(activeFile.fileName)}\n${activeFile.content}\n\`\`\``,
     };
     setAiContext(prompts[action]);
-    if (!showAI) setShowAI(true);    setActivePanel('ai');
+    setShowAI(true);
+    setActivePanel('ai');
   };
 
-  // ── Analyze code for corrections ───────────────────────────────────
   const handleAnalyzeCorrections = async () => {
     if (!activeFile) return;
-    setCorrectionsLoading(true);
-    setShowCorrections(true);
-    setActivePanel('corrections');
+    setCorrectionsLoading(true); setShowCorrections(true); setActivePanel('corrections');
     try {
-      const result = await aiApi.correctCode(
-        activeFile.content,
-        getLang(activeFile.fileName)
-      );
+      const result = await aiApi.correctCode(activeFile.content, getLang(activeFile.fileName));
       setCorrections(result);
-    } catch (err) {
-      console.error('Error analyzing corrections:', err);
-      setCorrections({
-        issues: [{ type: 'error', message: 'Failed to analyze code. Make sure Ollama is running.' }],
-        correctedCode: activeFile.content,
-        explanation: 'Error occurred while analyzing your code.',
-      });
-    } finally {
-      setCorrectionsLoading(false);
-    }
+    } catch { setCorrections({ issues: [{ type: 'error', message: 'Failed to analyze. Make sure Ollama is running.' }], correctedCode: activeFile.content, explanation: 'Error.' }); }
+    finally { setCorrectionsLoading(false); }
   };
 
-  // ── Get inline suggestions ─────────────────────────────────────────
   const handleGetSuggestions = async () => {
     if (!activeFile) return;
-    setSuggestionsLoading(true);
-    setShowCorrections(true);
-    setActivePanel('corrections');
+    setSuggestionsLoading(true); setShowCorrections(true); setActivePanel('corrections');
     try {
-      const result = await aiApi.suggestCode(
-        activeFile.content,
-        getLang(activeFile.fileName)
-      );
+      const result = await aiApi.suggestCode(activeFile.content, getLang(activeFile.fileName));
       setSuggestions(result);
-    } catch (err) {
-      console.error('Error getting suggestions:', err);
-      setSuggestions([]);
-    } finally {
-      setSuggestionsLoading(false);
-    }
+    } catch { setSuggestions([]); }
+    finally { setSuggestionsLoading(false); }
   };
 
-  // ── Apply corrected code ───────────────────────────────────────────
   const handleApplyCorrectedCode = (correctedCode: string) => {
     if (!activeFile) return;
     dispatch(patchFileContent({ id: activeFile.id, content: correctedCode }));
     setDirty((d) => ({ ...d, [activeFile.id]: true }));
   };
 
-  // ── Select and insert suggestion ───────────────────────────────────
   const handleSelectSuggestion = (suggestion: CodeSuggestion) => {
     if (!activeFile) return;
-    const newContent = activeFile.content + '\n' + suggestion.text;
-    dispatch(patchFileContent({ id: activeFile.id, content: newContent }));
-    setDirty((d) => ({ ...d, [activeFile.id]: true }));  };
+    dispatch(patchFileContent({ id: activeFile.id, content: activeFile.content + '\n' + suggestion.text }));
+    setDirty((d) => ({ ...d, [activeFile.id]: true }));
+  };
 
-  // Ctrl+S / Ctrl+Shift+S / F5 run
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 's') { e.preventDefault(); handleSaveAll(); }
@@ -428,7 +311,7 @@ const EditorPage: React.FC = () => {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleSave]);
+  }, [handleSave, activeFile]);
 
   useEffect(() => {
     const handler = () => setContextMenu(null);
@@ -441,7 +324,6 @@ const EditorPage: React.FC = () => {
   const dirtyCount = Object.values(dirty).filter(Boolean).length;
   const monacoTheme = MONACO_THEMES[settings.appearance.theme] || 'vs-dark';
 
-  // ── Recursive file tree renderer ──────────────────────────────────────
   const renderTree = (nodes: Array<FolderNode | FileLeafNode>, depth = 0): React.ReactNode =>
     nodes.map((node) => {
       const indent = 8 + depth * 14;
@@ -449,15 +331,10 @@ const EditorPage: React.FC = () => {
         const open = expandedFolders[node.path] ?? true;
         return (
           <React.Fragment key={node.id}>
-            <div
-              className="flex items-center gap-1.5 cursor-pointer py-1 group hover:bg-white/5 transition-colors"
+            <div className="flex items-center gap-1.5 cursor-pointer py-1 group hover:bg-white/5 transition-colors"
               style={{ paddingLeft: `${indent}px`, paddingRight: '8px' }}
               onClick={() => setExpandedFolders((p) => ({ ...p, [node.path]: !open }))}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setContextMenu({ x: e.clientX, y: e.clientY, fileId: node.id, type: 'folder', folderPath: node.path });
-              }}
-            >
+              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, fileId: node.id, type: 'folder', folderPath: node.path }); }}>
               <span className="text-xs" style={{ color: '#6B7280' }}>{open ? '▾' : '▸'}</span>
               <span className="text-xs" style={{ color: '#FBBF24' }}>📁</span>
               <span className="text-xs truncate flex-1" style={{ color: '#9CA3AF' }}>{node.name}</span>
@@ -466,31 +343,16 @@ const EditorPage: React.FC = () => {
           </React.Fragment>
         );
       }
-      // File leaf
       const file = files.find((f) => f.id === node.id);
       return (
-        <div
-          key={node.id}
+        <div key={node.id}
           className="flex items-center gap-2 cursor-pointer group transition-colors py-1"
-          style={{
-            paddingLeft: `${indent}px`,
-            paddingRight: '8px',
-            background: activeFile?.id === node.id ? 'rgba(0,212,184,0.08)' : 'transparent',
-            borderLeft: activeFile?.id === node.id ? '2px solid #00D4B8' : '2px solid transparent',
-          }}
+          style={{ paddingLeft: `${indent}px`, paddingRight: '8px', background: activeFile?.id === node.id ? 'rgba(0,212,184,0.08)' : 'transparent', borderLeft: activeFile?.id === node.id ? '2px solid #00D4B8' : '2px solid transparent' }}
           onClick={() => file && handleFileSelect(node.id)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setContextMenu({ x: e.clientX, y: e.clientY, fileId: node.id, type: 'file' });
-          }}
-        >
+          onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, fileId: node.id, type: 'file' }); }}>
           <span className="text-xs">{getFileIcon(node.name)}</span>
-          <span className="text-xs truncate flex-1" style={{ color: activeFile?.id === node.id ? '#E2E8F0' : '#9CA3AF' }}>
-            {node.name}
-          </span>
-          {dirty[node.id] && (
-            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: '#F59E0B' }} />
-          )}
+          <span className="text-xs truncate flex-1" style={{ color: activeFile?.id === node.id ? '#E2E8F0' : '#9CA3AF' }}>{node.name}</span>
+          {dirty[node.id] && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: '#F59E0B' }} />}
         </div>
       );
     });
@@ -501,7 +363,6 @@ const EditorPage: React.FC = () => {
         title={activeProject ? `📁 ${activeProject.name}` : 'Editor Workspace'}
         extra={
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Role badge */}
             {isViewer && (
               <span className="px-2 py-0.5 text-xs rounded-full" style={{ background: 'rgba(251,191,36,0.1)', color: '#FBBF24', border: '1px solid rgba(251,191,36,0.3)' }}>
                 👁 View Only
@@ -509,7 +370,6 @@ const EditorPage: React.FC = () => {
             )}
             {saveText && <span className="text-xs font-medium" style={{ color: saveColor }}>{saveText}</span>}
 
-            {/* AI action buttons */}
             {activeFile && (
               <div className="flex gap-1">
                 {(['explain', 'fix', 'generate'] as const).map((action) => {
@@ -529,7 +389,6 @@ const EditorPage: React.FC = () => {
               </div>
             )}
 
-            {/* Code Correction buttons */}
             {activeFile && (
               <div className="flex gap-1">
                 <button onClick={handleAnalyzeCorrections}
@@ -545,17 +404,17 @@ const EditorPage: React.FC = () => {
               </div>
             )}
 
-            {/* Run button */}
-            {activeFile && (
+            {/* ✅ Run button — only shows for runnable file types */}
+            {activeFile && canRunFile(activeFile.fileName) && (
               <button onClick={handleRun}
-                className="px-3 py-1.5 text-xs rounded-md font-medium transition-all flex items-center gap-1"
+                disabled={runState?.running}
+                className="px-3 py-1.5 text-xs rounded-md font-medium transition-all flex items-center gap-1 disabled:opacity-60"
                 style={{ background: '#4ADE80', color: '#0A0A0F' }}
                 title="Run file (F5)">
-                ▶ Run
+                {runState?.running ? '⟳ Running…' : '▶ Run'}
               </button>
             )}
 
-            {/* Save button (hidden for viewers) */}
             {canEdit && (
               <button onClick={handleSave}
                 disabled={!activeFile || !dirty[activeFile?.id]}
@@ -565,23 +424,17 @@ const EditorPage: React.FC = () => {
               </button>
             )}
 
-            <button onClick={() => setShowTerminal(!showTerminal)}
+            <button onClick={() => { setShowTerminal(!showTerminal); if (showRunOutput) setShowRunOutput(false); }}
               className="px-3 py-1.5 text-xs rounded-md font-medium transition-all"
               style={{ background: showTerminal ? '#00D4B8' : '#1A1A26', color: showTerminal ? '#0A0A0F' : '#9CA3AF', border: '1px solid #2A2A3A' }}>
               &gt;_
             </button>
-            <button onClick={() => {
-              setShowCorrections(!showCorrections);
-              if (!showCorrections) setActivePanel('corrections');
-            }}
+            <button onClick={() => { setShowCorrections(!showCorrections); if (!showCorrections) setActivePanel('corrections'); }}
               className="px-3 py-1.5 text-xs rounded-md font-medium transition-all"
               style={{ background: activePanel === 'corrections' ? 'rgba(168,85,247,0.15)' : '#1A1A26', color: activePanel === 'corrections' ? '#A855F7' : '#9CA3AF', border: activePanel === 'corrections' ? '1px solid rgba(168,85,247,0.3)' : '1px solid #2A2A3A' }}>
               🔍 Corrections
             </button>
-            <button onClick={() => {
-              setShowAI(!showAI);
-              if (!showAI) setActivePanel('ai');
-            }}
+            <button onClick={() => { setShowAI(!showAI); if (!showAI) setActivePanel('ai'); }}
               className="px-3 py-1.5 text-xs rounded-md font-medium transition-all"
               style={{ background: activePanel === 'ai' ? 'rgba(0,212,184,0.15)' : '#1A1A26', color: activePanel === 'ai' ? '#00D4B8' : '#9CA3AF', border: activePanel === 'ai' ? '1px solid rgba(0,212,184,0.3)' : '1px solid #2A2A3A' }}>
               ✦ AI
@@ -591,31 +444,27 @@ const EditorPage: React.FC = () => {
       />
 
       <div className="flex flex-1 overflow-hidden">
-        {/* ── File Explorer ──────────────────────────────────────────── */}
+        {/* File Explorer */}
         <div className="flex flex-col w-52 border-r overflow-hidden" style={{ background: '#0D0D16', borderColor: '#1A1A26' }}>
           <div className="px-3 py-2 border-b flex items-center justify-between" style={{ borderColor: '#1A1A26' }}>
             <span className="text-xs font-semibold tracking-widest uppercase" style={{ color: '#6B7280' }}>
               {activeProject?.name ?? 'Explorer'}
             </span>
             {activeProject && canEdit && (
-              <div className="flex gap-1">
-                <button onClick={() => { setNewFileParent(''); setShowNewFile((v) => !v); }}
-                  className="text-xs hover:text-white px-1 transition-colors" style={{ color: '#6B7280' }} title="New file">
-                  +
-                </button>
-              </div>
+              <button onClick={() => { setNewFileParent(''); setShowNewFile((v) => !v); }}
+                className="text-xs hover:text-white px-1 transition-colors" style={{ color: '#6B7280' }} title="New file">
+                +
+              </button>
             )}
           </div>
 
           {showNewFile && (
             <div className="px-2 py-2 border-b" style={{ borderColor: '#1A1A26' }}>
-              {newFileParent && (
-                <p className="text-xs mb-1 truncate" style={{ color: '#6B7280' }}>📁 {newFileParent}/</p>
-              )}
+              {newFileParent && <p className="text-xs mb-1 truncate" style={{ color: '#6B7280' }}>📁 {newFileParent}/</p>}
               <input autoFocus
                 className="w-full px-2 py-1 text-xs rounded outline-none text-white"
                 style={{ background: '#12121A', border: '1px solid #00D4B8' }}
-                placeholder="filename.ts or folder/file.ts"
+                placeholder="filename.java or folder/Main.java"
                 value={newFileName}
                 onChange={(e) => setNewFileName(e.target.value)}
                 onKeyDown={(e) => {
@@ -646,7 +495,7 @@ const EditorPage: React.FC = () => {
           )}
         </div>
 
-        {/* ── Editor Area ────────────────────────────────────────────── */}
+        {/* Editor Area */}
         <div className="flex flex-col flex-1 overflow-hidden">
           {/* Tabs */}
           <div className="flex items-center border-b overflow-x-auto" style={{ borderColor: '#1A1A26', background: '#0D0D16', minHeight: '36px' }}>
@@ -654,12 +503,7 @@ const EditorPage: React.FC = () => {
             {openFiles.map((file) => (
               <div key={file.id}
                 className="flex items-center gap-2 px-4 py-2 cursor-pointer border-r text-xs whitespace-nowrap transition-all group"
-                style={{
-                  borderColor: '#1A1A26',
-                  background: activeFile?.id === file.id ? '#0A0A0F' : 'transparent',
-                  color: activeFile?.id === file.id ? '#E2E8F0' : '#6B7280',
-                  borderBottom: activeFile?.id === file.id ? '1px solid #00D4B8' : '1px solid transparent',
-                }}
+                style={{ borderColor: '#1A1A26', background: activeFile?.id === file.id ? '#0A0A0F' : 'transparent', color: activeFile?.id === file.id ? '#E2E8F0' : '#6B7280', borderBottom: activeFile?.id === file.id ? '1px solid #00D4B8' : '1px solid transparent' }}
                 onClick={() => dispatch(setActiveFile(file))}>
                 <span className="text-xs">{getFileIcon(file.fileName)}</span>
                 <span>{file.fileName}</span>
@@ -674,15 +518,14 @@ const EditorPage: React.FC = () => {
           <div className="flex-1 flex flex-col overflow-hidden">
             {activeFile ? (
               <>
-                {/* Breadcrumb */}
                 <div className="flex items-center gap-2 px-4 py-1 border-b text-xs" style={{ borderColor: '#1A1A26', background: '#0A0A0F', color: '#3A3A50' }}>
                   <span>{activeProject?.name}</span>
                   <span>›</span>
                   <span style={{ color: '#6B7280' }}>{activeFile.fileName}</span>
                   <span className="ml-auto" style={{ color: '#3A3A50' }}>{getLang(activeFile.fileName)}</span>
                   {isViewer && <span className="text-xs" style={{ color: '#FBBF24' }}>read-only</span>}
+                  {canRunFile(activeFile.fileName) && <span className="text-xs" style={{ color: '#4ADE80' }}>● runnable</span>}
                 </div>
-
                 <div className="flex-1" style={{ minHeight: 0 }}>
                   <Editor
                     height="100%"
@@ -693,7 +536,7 @@ const EditorPage: React.FC = () => {
                     onMount={handleEditorMount}
                     options={{
                       fontSize: settings.editor.fontSize,
-                      fontFamily: `'${settings.editor.fontFamily}', 'Fira Code', monospace`,
+                      fontFamily: `'${settings.editor.fontFamily}', 'JetBrains Mono', monospace`,
                       fontLigatures: true,
                       minimap: { enabled: settings.editor.minimap },
                       scrollBeyondLastLine: false,
@@ -707,16 +550,13 @@ const EditorPage: React.FC = () => {
                       padding: { top: 12 },
                       bracketPairColorization: { enabled: true },
                       guides: { bracketPairs: true },
-                      // IntelliSense / Suggestions
                       suggest: { showKeywords: true, showSnippets: true, showMethods: true, showFunctions: true, showVariables: true, showClasses: true, showModules: true },
                       quickSuggestions: { other: true, comments: false, strings: true },
                       parameterHints: { enabled: true },
                       acceptSuggestionOnEnter: 'on',
                       suggestOnTriggerCharacters: true,
-                      // Formatting
                       formatOnPaste: settings.editor.formatOnSave,
                       formatOnType: settings.editor.formatOnSave,
-                      // Read-only for viewers
                       readOnly: isViewer,
                     }}
                   />
@@ -727,7 +567,7 @@ const EditorPage: React.FC = () => {
                 <p className="text-4xl mb-3">{'</>'}</p>
                 <p className="text-sm mb-1" style={{ color: '#6B7280' }}>No file opened</p>
                 <p className="text-xs">Select a file or press + to create one</p>
-                <div className="mt-6 flex flex-wrap gap-2 justify-center">
+                <div className="mt-4 flex flex-wrap gap-2 justify-center">
                   {[['Ctrl+S','save'], ['Ctrl+Shift+S','save all'], ['F5','run']].map(([key, label]) => (
                     <React.Fragment key={key}>
                       <kbd className="px-2 py-1 text-xs rounded" style={{ background: '#1A1A26', color: '#6B7280', border: '1px solid #2A2A3A' }}>{key}</kbd>
@@ -738,28 +578,70 @@ const EditorPage: React.FC = () => {
               </div>
             )}
 
-            {/* Terminal + Run output */}
+            {/* ✅ Terminal / Run Output panel */}
             {showTerminal && (
               <div style={{ height: '220px', borderTop: '1px solid #1A1A26' }}>
-                {runOutput ? (
+                {showRunOutput && runState ? (
+                  /* ── Run output view ── */
                   <div className="h-full flex flex-col" style={{ background: '#080810' }}>
-                    <div className="flex items-center justify-between px-4 py-2 border-b" style={{ borderColor: '#1A1A26' }}>
-                      <span className="text-xs font-medium" style={{ color: '#4ADE80' }}>▶ Run Output — {activeFile?.fileName}</span>
-                      <button onClick={() => setRunOutput(null)} className="text-xs" style={{ color: '#6B7280' }}>✕ Close</button>
+                    <div className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0" style={{ borderColor: '#1A1A26', background: '#0D0D16' }}>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-semibold" style={{ color: '#4ADE80' }}>
+                          ▶ {runState.fileName}
+                        </span>
+                        {!runState.running && runState.exitCode !== null && (
+                          <span className="text-xs px-2 py-0.5 rounded-full"
+                            style={{
+                              background: runState.exitCode === 0 ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)',
+                              color:      runState.exitCode === 0 ? '#4ADE80' : '#F87171',
+                              border:     `1px solid ${runState.exitCode === 0 ? 'rgba(74,222,128,0.3)' : 'rgba(248,113,113,0.3)'}`,
+                            }}>
+                            Exit {runState.exitCode}
+                          </span>
+                        )}
+                        {runState.running && (
+                          <span className="text-xs animate-pulse" style={{ color: '#F59E0B' }}>● running in Docker…</span>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={handleRun} disabled={runState.running}
+                          className="text-xs px-2 py-1 rounded disabled:opacity-40"
+                          style={{ background: 'rgba(74,222,128,0.1)', color: '#4ADE80', border: '1px solid rgba(74,222,128,0.3)' }}>
+                          ↺ Re-run
+                        </button>
+                        <button onClick={() => setShowRunOutput(false)}
+                          className="text-xs px-2 py-1 rounded"
+                          style={{ background: '#1A1A26', color: '#6B7280', border: '1px solid #2A2A3A' }}>
+                          Terminal
+                        </button>
+                        <button onClick={() => setShowTerminal(false)} className="text-xs" style={{ color: '#6B7280' }}>✕</button>
+                      </div>
                     </div>
-                    <div className="flex-1 overflow-auto p-3 font-mono text-xs" style={{ color: '#CBD5E1' }}>
-                      {runOutput.running ? (
-                        <span style={{ color: '#F59E0B' }}>Running…</span>
+
+                    <div className="flex-1 overflow-auto p-3 font-mono text-xs leading-6">
+                      {runState.running ? (
+                        <span style={{ color: '#F59E0B' }}>Compiling and running in Docker sandbox…</span>
                       ) : (
                         <>
-                          {runOutput.out && <pre className="whitespace-pre-wrap" style={{ color: '#CBD5E1' }}>{runOutput.out}</pre>}
-                          {runOutput.err && <pre className="whitespace-pre-wrap" style={{ color: '#F87171' }}>{runOutput.err}</pre>}
-                          {!runOutput.out && !runOutput.err && <span style={{ color: '#6B7280' }}>No output.</span>}
+                          {runState.stdout && (
+                            <pre className="whitespace-pre-wrap break-words" style={{ color: '#CBD5E1' }}>{runState.stdout}</pre>
+                          )}
+                          {runState.stderr && (
+                            <pre className="whitespace-pre-wrap break-words mt-2" style={{ color: runState.exitCode === 0 ? '#F59E0B' : '#F87171' }}>{runState.stderr}</pre>
+                          )}
+                          {!runState.stdout && !runState.stderr && (
+                            <span style={{ color: '#6B7280' }}>No output.</span>
+                          )}
                         </>
                       )}
                     </div>
+
+                    <div className="px-4 py-1 border-t flex items-center gap-2 flex-shrink-0" style={{ borderColor: '#1A1A26', background: '#0D0D16' }}>
+                      <span className="text-xs" style={{ color: '#3A3A50' }}>🐳 Docker sandbox · no network · 256MB · 20s limit</span>
+                    </div>
                   </div>
                 ) : (
+                  /* ── Normal Terminal ── */
                   <Terminal onClose={() => setShowTerminal(false)} />
                 )}
               </div>
@@ -767,7 +649,7 @@ const EditorPage: React.FC = () => {
           </div>
         </div>
 
-        {/* ── AI Panel ───────────────────────────────────────────────── */}
+        {/* AI / Corrections Panel */}
         {(showAI || showCorrections) && (
           <div className="w-72 border-l overflow-y-auto" style={{ borderColor: '#1A1A26', background: '#0A0A0F' }}>
             {activePanel === 'ai' && showAI && (
@@ -776,18 +658,10 @@ const EditorPage: React.FC = () => {
             {activePanel === 'corrections' && showCorrections && (
               <div className="p-4 space-y-4">
                 {suggestions.length > 0 && (
-                  <CodeSuggestions
-                    suggestions={suggestions}
-                    onSelectSuggestion={handleSelectSuggestion}
-                    loading={suggestionsLoading}
-                  />
+                  <CodeSuggestions suggestions={suggestions} onSelectSuggestion={handleSelectSuggestion} loading={suggestionsLoading} />
                 )}
                 {corrections && (
-                  <CodeCorrections
-                    correction={corrections}
-                    onApplyCorrectedCode={handleApplyCorrectedCode}
-                    loading={correctionsLoading}
-                  />
+                  <CodeCorrections correction={corrections} onApplyCorrectedCode={handleApplyCorrectedCode} loading={correctionsLoading} />
                 )}
               </div>
             )}
