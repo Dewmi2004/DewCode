@@ -55,7 +55,7 @@ const LANG_CONFIGS: LangConfig[] = [
   },
   {
     // Java: fileName MUST match public class name (e.g. Calculator.java → Calculator)
-    image:  'openjdk:21-slim',
+    image:  'eclipse-temurin:21-alpine',
     exts:   ['java'],
     runCmd: (f) => {
       const dir       = path.dirname(f);
