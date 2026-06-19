@@ -50,11 +50,15 @@ const CodeCorrections: React.FC<CodeCorrectionsProps> = ({
     }
   };
 
-  if (!correction) {
+  // ✅ FIXED: this used to be `if (!correction) return null;`, which meant
+  // the whole panel — including its "Analyzing code..." spinner — never
+  // rendered during the Ollama round-trip, since `correction` stays null
+  // until a response arrives. Only bail when there's nothing to show at all.
+  if (!correction && !loading) {
     return null;
   }
 
-  const hasIssues = correction.issues && correction.issues.length > 0;
+  const hasIssues = !!correction?.issues && correction.issues.length > 0;
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-4">
@@ -63,7 +67,7 @@ const CodeCorrections: React.FC<CodeCorrectionsProps> = ({
         <h3 className="text-sm font-semibold text-gray-100">Code Corrections</h3>
         {hasIssues && (
           <span className="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded">
-            {correction.issues.length} issue{correction.issues.length !== 1 ? 's' : ''}
+            {correction!.issues.length} issue{correction!.issues.length !== 1 ? 's' : ''}
           </span>
         )}
       </div>
@@ -75,16 +79,16 @@ const CodeCorrections: React.FC<CodeCorrectionsProps> = ({
         </div>
       )}
 
-      {!loading && !hasIssues && (
+      {!loading && correction && !hasIssues && (
         <div className="p-3 bg-green-500/10 border border-green-500/30 rounded text-green-400 text-xs">
           ✅ No issues found! Your code looks good.
         </div>
       )}
 
       {/* Issues List */}
-      {hasIssues && (
+      {!loading && hasIssues && (
         <div className="space-y-2 max-h-64 overflow-y-auto">
-          {correction.issues.map((issue, idx) => (
+          {correction!.issues.map((issue, idx) => (
             <div
               key={idx}
               className={`border-l-4 rounded p-3 cursor-pointer transition-colors ${getIssueColor(
@@ -120,7 +124,7 @@ const CodeCorrections: React.FC<CodeCorrectionsProps> = ({
       )}
 
       {/* Corrected Code Preview */}
-      {correction.correctedCode && (
+      {!loading && correction?.correctedCode && (
         <div className="space-y-2">
           <div className="text-xs font-medium text-gray-300">Corrected Code:</div>
           <div className="bg-black/30 p-3 rounded max-h-40 overflow-y-auto">
@@ -132,7 +136,7 @@ const CodeCorrections: React.FC<CodeCorrectionsProps> = ({
       )}
 
       {/* Explanation */}
-      {correction.explanation && (
+      {!loading && correction?.explanation && (
         <div className="space-y-2">
           <div className="text-xs font-medium text-gray-300">Explanation:</div>
           <div className="text-xs text-gray-400 bg-black/20 p-3 rounded">
@@ -142,7 +146,7 @@ const CodeCorrections: React.FC<CodeCorrectionsProps> = ({
       )}
 
       {/* Apply Button */}
-      {correction.correctedCode && onApplyCorrectedCode && (
+      {!loading && correction?.correctedCode && onApplyCorrectedCode && (
         <button
           onClick={() => onApplyCorrectedCode(correction.correctedCode)}
           className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded transition-colors"

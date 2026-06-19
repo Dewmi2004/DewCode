@@ -8,14 +8,22 @@ interface CodeSuggestionsProps {
   suggestions: CodeSuggestion[];
   onSelectSuggestion?: (suggestion: CodeSuggestion) => void;
   loading?: boolean;
+  /** Set when the last suggestion request failed or came back empty. */
+  error?: string | null;
 }
 
 const CodeSuggestions: React.FC<CodeSuggestionsProps> = ({
   suggestions,
   onSelectSuggestion,
   loading,
+  error,
 }) => {
-  if (!suggestions || suggestions.length === 0) {
+  // ✅ FIXED: this used to be `if (!suggestions || suggestions.length === 0) return null;`
+  // which meant the component (and its loading spinner / error message) never
+  // rendered at all while a request was in flight or had failed — only once
+  // suggestions actually existed. Now it only bails when there's truly
+  // nothing to show: not loading, no error, and no suggestions.
+  if (!loading && !error && (!suggestions || suggestions.length === 0)) {
     return null;
   }
 
@@ -34,8 +42,20 @@ const CodeSuggestions: React.FC<CodeSuggestionsProps> = ({
         </div>
       )}
 
+      {!loading && error && (
+        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded text-red-400 text-xs">
+          ⚠️ {error}
+        </div>
+      )}
+
+      {!loading && !error && suggestions.length === 0 && (
+        <div className="p-3 bg-gray-800/50 border border-gray-700 rounded text-gray-400 text-xs">
+          No suggestions for this context.
+        </div>
+      )}
+
       {/* Suggestions List */}
-      {!loading && (
+      {!loading && !error && suggestions.length > 0 && (
         <div className="space-y-2">
           {suggestions.map((suggestion, idx) => (
             <div

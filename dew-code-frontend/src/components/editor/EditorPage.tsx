@@ -140,6 +140,7 @@ const EditorPage: React.FC = () => {
   const [correctionsLoading, setCorrectionsLoading] = useState(false);
   const [suggestions,    setSuggestions]    = useState<CodeSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
   const [activePanel,    setActivePanel]    = useState<'ai' | 'corrections' | null>('ai');
 
   // ✅ NEW unified run state
@@ -368,11 +369,15 @@ const EditorPage: React.FC = () => {
 
   const handleGetSuggestions = async () => {
     if (!activeFile) return;
-    setSuggestionsLoading(true); setShowCorrections(true); setActivePanel('corrections');
+    setSuggestionsLoading(true); setSuggestionsError(null); setShowCorrections(true); setActivePanel('corrections');
     try {
       const result = await aiApi.suggestCode(activeFile.content, getLang(activeFile.fileName));
       setSuggestions(result);
-    } catch { setSuggestions([]); }
+      if (result.length === 0) setSuggestionsError('Model returned no usable suggestions. Try again or check Ollama.');
+    } catch (e: unknown) {
+      setSuggestions([]);
+      setSuggestionsError(e instanceof Error ? e.message : 'Failed to get suggestions. Make sure Ollama is running.');
+    }
     finally { setSuggestionsLoading(false); }
   };
 
@@ -797,10 +802,21 @@ const EditorPage: React.FC = () => {
             )}
             {activePanel === 'corrections' && showCorrections && (
               <div className="p-4 space-y-4">
-                {suggestions.length > 0 && (
-                  <CodeSuggestions suggestions={suggestions} onSelectSuggestion={handleSelectSuggestion} loading={suggestionsLoading} />
+                {/* ✅ FIXED: was `suggestions.length > 0 && (...)` — that hid the
+                    panel (and its loading spinner) for the entire Ollama
+                    round-trip, since `suggestions` stays [] until a response
+                    arrives. Now renders as soon as a request starts. */}
+                {(suggestionsLoading || suggestions.length > 0 || suggestionsError) && (
+                  <CodeSuggestions
+                    suggestions={suggestions}
+                    onSelectSuggestion={handleSelectSuggestion}
+                    loading={suggestionsLoading}
+                    error={suggestionsError}
+                  />
                 )}
-                {corrections && (
+                {/* ✅ FIXED: was `corrections && (...)` — same issue, `corrections`
+                    stays null until the response lands. */}
+                {(correctionsLoading || corrections) && (
                   <CodeCorrections correction={corrections} onApplyCorrectedCode={handleApplyCorrectedCode} loading={correctionsLoading} />
                 )}
               </div>
