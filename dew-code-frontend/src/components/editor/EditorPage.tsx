@@ -95,11 +95,25 @@ const buildTree = (fileNames: Array<{ id: string; fileName: string }>): Array<Fo
 
 // ── Run output state ───────────────────────────────────────────────────────
 interface RunState {
-  running: boolean;
-  stdout:  string;
-  stderr:  string;
-  exitCode: number | null;
-  fileName: string;
+  running:   boolean;        // a request (execute/stdin/kill) is in flight
+  stdout:    string;
+  stderr:    string;
+  exitCode:  number | null;
+  fileName:  string;
+  sessionId: string | null;  // set while the backend container is still alive
+  exited:    boolean;        // true once the process has finished
+}
+
+interface ExecuteResponse {
+  success: boolean;
+  data?: {
+    stdout: string;
+    stderr: string;
+    exitCode: number | null;
+    sessionId?: string | null;
+    exited?: boolean;
+  };
+  message?: string;
 }
 
 const EditorPage: React.FC = () => {
@@ -131,6 +145,12 @@ const EditorPage: React.FC = () => {
   // ✅ NEW unified run state
   const [runState, setRunState] = useState<RunState | null>(null);
   const [showRunOutput, setShowRunOutput] = useState(false);
+  const [runStdinInput, setRunStdinInput] = useState('');
+
+  // Mirrors the latest sessionId so the unmount-cleanup effect can kill a
+  // still-running container without re-subscribing every time it changes.
+  const runSessionIdRef = useRef<string | null>(null);
+  const runStdinInputRef = useRef<HTMLInputElement>(null);
 
   const monacoRef = useRef<Monaco | null>(null);
 
@@ -215,23 +235,35 @@ const EditorPage: React.FC = () => {
     setContextMenu(null);
   };
 
-  // ✅ FIXED handleRun — sends { fileName, content } not a shell command
+  // ✅ FIXED handleRun — sends { fileName, content } and now tracks the
+  // sessionId the backend hands back so we can keep feeding stdin to a
+  // program that's still waiting on input (e.g. Python's input(), Java's
+  // Scanner, C's scanf) instead of leaving it stuck forever.
   const handleRun = async () => {
     if (!activeFile) return;
 
     if (!canRunFile(activeFile.fileName)) {
-      setRunState({ running: false, stdout: '', stderr: `Cannot run "${activeFile.fileName}" directly.\nRunnable: .js .ts .py .java .c .cpp .go .rs .sh`, exitCode: 1, fileName: activeFile.fileName });
+      setRunState({ running: false, stdout: '', stderr: `Cannot run "${activeFile.fileName}" directly.\nRunnable: .js .ts .py .java .c .cpp .go .rs .sh`, exitCode: 1, fileName: activeFile.fileName, sessionId: null, exited: true });
       setShowRunOutput(true);
       setShowTerminal(true);
       return;
     }
 
-    setRunState({ running: true, stdout: '', stderr: '', exitCode: null, fileName: activeFile.fileName });
+    // If a previous run is still alive (waiting on stdin), kill it before
+    // starting a fresh one so we don't leak Docker containers.
+    if (runSessionIdRef.current) {
+      const staleId = runSessionIdRef.current;
+      runSessionIdRef.current = null;
+      apiFetch('/api/terminal/kill', { method: 'POST', body: JSON.stringify({ sessionId: staleId }) }).catch(() => {});
+    }
+
+    setRunStdinInput('');
+    setRunState({ running: true, stdout: '', stderr: '', exitCode: null, fileName: activeFile.fileName, sessionId: null, exited: false });
     setShowRunOutput(true);
     setShowTerminal(true);
 
     try {
-      const resp = await apiFetch<{ success: boolean; data: { stdout: string; stderr: string; exitCode: number }; message?: string }>(
+      const resp = await apiFetch<ExecuteResponse>(
         '/api/terminal/execute',
         {
           method: 'POST',
@@ -244,19 +276,72 @@ const EditorPage: React.FC = () => {
       );
 
       if (resp.success && resp.data) {
+        const { stdout, stderr, exitCode, sessionId, exited } = resp.data;
+        runSessionIdRef.current = exited ? null : (sessionId ?? null);
         setRunState({
-          running:  false,
-          stdout:   resp.data.stdout || '',
-          stderr:   resp.data.stderr || '',
-          exitCode: resp.data.exitCode,
-          fileName: activeFile.fileName,
+          running:   false,
+          stdout:    stdout || '',
+          stderr:    stderr || '',
+          exitCode:  exited ? exitCode : null,
+          fileName:  activeFile.fileName,
+          sessionId: exited ? null : (sessionId ?? null),
+          exited:    !!exited,
         });
       } else {
-        setRunState({ running: false, stdout: '', stderr: resp.message || 'Execution failed.', exitCode: 1, fileName: activeFile.fileName });
+        runSessionIdRef.current = null;
+        setRunState({ running: false, stdout: '', stderr: resp.message || 'Execution failed.', exitCode: 1, fileName: activeFile.fileName, sessionId: null, exited: true });
       }
     } catch (e: unknown) {
-      setRunState({ running: false, stdout: '', stderr: String(e), exitCode: 1, fileName: activeFile.fileName });
+      runSessionIdRef.current = null;
+      setRunState({ running: false, stdout: '', stderr: String(e), exitCode: 1, fileName: activeFile.fileName, sessionId: null, exited: true });
     }
+  };
+
+  // Send one line of stdin to the still-running session from the Run
+  // Output panel — same wire contract Terminal.tsx already uses.
+  const handleRunStdinSubmit = async () => {
+    if (!runState || !runState.sessionId || runState.running) return;
+    const value = runStdinInput;
+    setRunStdinInput('');
+    setRunState((s) => (s ? { ...s, running: true } : s));
+
+    try {
+      const resp = await apiFetch<ExecuteResponse>('/api/terminal/stdin', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId: runState.sessionId, input: value }),
+      });
+
+      if (resp.success && resp.data) {
+        const { stdout, stderr, exitCode, sessionId, exited } = resp.data;
+        runSessionIdRef.current = exited ? null : (sessionId ?? runState.sessionId);
+        setRunState((s) => s ? {
+          ...s,
+          running:   false,
+          stdout:    s.stdout + (stdout || ''),
+          stderr:    s.stderr + (stderr || ''),
+          exitCode:  exited ? exitCode : null,
+          sessionId: exited ? null : (sessionId ?? s.sessionId),
+          exited:    !!exited,
+        } : s);
+      } else {
+        runSessionIdRef.current = null;
+        setRunState((s) => s ? { ...s, running: false, stderr: s.stderr + '\n' + (resp.message || 'Input failed.'), exited: true, sessionId: null, exitCode: 1 } : s);
+      }
+    } catch (e: unknown) {
+      runSessionIdRef.current = null;
+      setRunState((s) => s ? { ...s, running: false, stderr: s.stderr + '\n' + String(e), exited: true, sessionId: null, exitCode: 1 } : s);
+    }
+  };
+
+  // Stop a still-running session early (e.g. an infinite loop, or a
+  // program the user no longer wants to feed input to).
+  const handleKillRun = async () => {
+    const id = runState?.sessionId;
+    runSessionIdRef.current = null;
+    if (id) {
+      apiFetch('/api/terminal/kill', { method: 'POST', body: JSON.stringify({ sessionId: id }) }).catch(() => {});
+    }
+    setRunState((s) => s ? { ...s, running: false, exited: true, sessionId: null, stderr: s.stderr + '\n[stopped by user]' } : s);
   };
 
   const handleSendToAI = (action: 'explain' | 'fix' | 'generate') => {
@@ -318,6 +403,26 @@ const EditorPage: React.FC = () => {
     window.addEventListener('click', handler);
     return () => window.removeEventListener('click', handler);
   }, []);
+
+  // Kill any still-running Run-panel session if the editor unmounts
+  // (closed tab, navigated away, etc.) so we don't leak Docker containers.
+  useEffect(() => {
+    return () => {
+      const id = runSessionIdRef.current;
+      if (id) {
+        apiFetch('/api/terminal/kill', { method: 'POST', body: JSON.stringify({ sessionId: id }) }).catch(() => {});
+      }
+    };
+  }, []);
+
+  // Pull focus to the stdin field the moment a run session is alive and
+  // waiting on input — same "becomes obviously typeable" behavior as
+  // Terminal.tsx's stdin mode.
+  useEffect(() => {
+    if (showRunOutput && runState && !runState.exited && runState.sessionId && !runState.running) {
+      runStdinInputRef.current?.focus();
+    }
+  }, [showRunOutput, runState?.sessionId, runState?.running, runState?.exited]);
 
   const saveColor = saveStatus === 'saved' ? '#00D4B8' : saveStatus === 'saving' ? '#F59E0B' : saveStatus === 'error' ? '#F87171' : '#6B7280';
   const saveText  = saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'saving' ? '⟳ Saving…' : saveStatus === 'error' ? '✕ Error' : '';
@@ -411,7 +516,7 @@ const EditorPage: React.FC = () => {
                 className="px-3 py-1.5 text-xs rounded-md font-medium transition-all flex items-center gap-1 disabled:opacity-60"
                 style={{ background: '#4ADE80', color: '#0A0A0F' }}
                 title="Run file (F5)">
-                {runState?.running ? '⟳ Running…' : '▶ Run'}
+                {runState?.running ? '⟳ Running…' : runState && !runState.exited && runState.sessionId ? '▶ Run again' : '▶ Run'}
               </button>
             )}
 
@@ -589,7 +694,7 @@ const EditorPage: React.FC = () => {
                         <span className="text-xs font-semibold" style={{ color: '#4ADE80' }}>
                           ▶ {runState.fileName}
                         </span>
-                        {!runState.running && runState.exitCode !== null && (
+                        {!runState.running && runState.exited && runState.exitCode !== null && (
                           <span className="text-xs px-2 py-0.5 rounded-full"
                             style={{
                               background: runState.exitCode === 0 ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)',
@@ -602,8 +707,21 @@ const EditorPage: React.FC = () => {
                         {runState.running && (
                           <span className="text-xs animate-pulse" style={{ color: '#F59E0B' }}>● running in Docker…</span>
                         )}
+                        {!runState.running && !runState.exited && runState.sessionId && (
+                          <span className="text-xs px-2 py-0.5 rounded-full animate-pulse"
+                            style={{ background: 'rgba(245,158,11,0.1)', color: '#F59E0B', border: '1px solid rgba(245,158,11,0.3)' }}>
+                            ● waiting for input
+                          </span>
+                        )}
                       </div>
                       <div className="flex gap-2">
+                        {!runState.exited && runState.sessionId && (
+                          <button onClick={handleKillRun}
+                            className="text-xs px-2 py-1 rounded"
+                            style={{ background: 'rgba(248,113,113,0.1)', color: '#F87171', border: '1px solid rgba(248,113,113,0.3)' }}>
+                            ■ Stop
+                          </button>
+                        )}
                         <button onClick={handleRun} disabled={runState.running}
                           className="text-xs px-2 py-1 rounded disabled:opacity-40"
                           style={{ background: 'rgba(74,222,128,0.1)', color: '#4ADE80', border: '1px solid rgba(74,222,128,0.3)' }}>
@@ -619,7 +737,7 @@ const EditorPage: React.FC = () => {
                     </div>
 
                     <div className="flex-1 overflow-auto p-3 font-mono text-xs leading-6">
-                      {runState.running ? (
+                      {runState.running && !runState.stdout && !runState.stderr ? (
                         <span style={{ color: '#F59E0B' }}>Compiling and running in Docker sandbox…</span>
                       ) : (
                         <>
@@ -629,12 +747,34 @@ const EditorPage: React.FC = () => {
                           {runState.stderr && (
                             <pre className="whitespace-pre-wrap break-words mt-2" style={{ color: runState.exitCode === 0 ? '#F59E0B' : '#F87171' }}>{runState.stderr}</pre>
                           )}
-                          {!runState.stdout && !runState.stderr && (
+                          {!runState.stdout && !runState.stderr && !runState.running && (
                             <span style={{ color: '#6B7280' }}>No output.</span>
                           )}
                         </>
                       )}
                     </div>
+
+                    {/* ✅ Stdin input — appears once the program is alive and waiting on input,
+                        mirroring Terminal.tsx's session-based stdin flow. */}
+                    {!runState.exited && runState.sessionId && (
+                      <div
+                        className="px-3 py-2 border-t flex items-center gap-2 flex-shrink-0"
+                        style={{ borderTop: '1px solid #F59E0B', background: 'rgba(245, 158, 11, 0.08)' }}
+                      >
+                        <span style={{ color: '#F59E0B', fontWeight: 700 }}>&gt;</span>
+                        <input
+                          ref={runStdinInputRef}
+                          value={runStdinInput}
+                          onChange={(e) => setRunStdinInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleRunStdinSubmit(); }}
+                          disabled={runState.running}
+                          placeholder="Program is waiting for input…"
+                          className="flex-1 bg-transparent outline-none text-xs font-mono"
+                          style={{ color: '#E2E8F0' }}
+                        />
+                        <span className="text-xs" style={{ color: '#F59E0B' }}>↵ send</span>
+                      </div>
+                    )}
 
                     <div className="px-4 py-1 border-t flex items-center gap-2 flex-shrink-0" style={{ borderColor: '#1A1A26', background: '#0D0D16' }}>
                       <span className="text-xs" style={{ color: '#3A3A50' }}>🐳 Docker sandbox · no network · 256MB · 20s limit</span>
