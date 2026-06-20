@@ -3,6 +3,20 @@
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
+// Thrown instead of a plain Error so callers (e.g. "create folder" handlers)
+// can check `error.upgrade` to know whether to show the Upgrade-to-Plus
+// modal instead of a generic error toast.
+export class ApiError extends Error {
+  status: number;
+  upgrade: boolean;
+  constructor(message: string, status: number, upgrade = false) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.upgrade = upgrade;
+  }
+}
+
 let accessToken: string | null = null;
 let isRefreshing = false;
 let refreshQueue: Array<(token: string | null) => void> = [];
@@ -78,7 +92,7 @@ async function apiFetch<T>(
       headers['Authorization'] = `Bearer ${newToken}`;
       const retryResp = await fetch(url, { ...options, headers, credentials: 'include' });
       const data = await retryResp.json();
-      if (!retryResp.ok) throw new Error(data.message || 'Request failed');
+      if (!retryResp.ok) throw new ApiError(data.message || 'Request failed', retryResp.status, !!data.upgrade);
       return data as T;
     } catch {
       setAccessToken(null);
@@ -93,7 +107,7 @@ async function apiFetch<T>(
 
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.message || `Request failed with status ${response.status}`);
+    throw new ApiError(data.message || `Request failed with status ${response.status}`, response.status, !!data.upgrade);
   }
 
   return data as T;
@@ -112,6 +126,7 @@ export interface AuthResponse {
       role: 'Admin' | 'Developer' | 'Viewer';
       avatar?: string;
       isEmailVerified: boolean;
+      plan: 'free' | 'plus';
       createdAt: string;
     };
     accessToken: string;

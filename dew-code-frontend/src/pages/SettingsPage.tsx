@@ -8,8 +8,9 @@ import React, { useState } from 'react';
 import TopBar from '../components/layout/TopBar';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import { updateSettings, updateEditorSettings, updateAISettings } from '../features/settings/settingsSlice';
-
-type Tab = 'profile' | 'editor' | 'ai' | 'github' | 'security';
+import UpgradeModal from '../components/billing/UpgradeModal';
+import { PLAN_LIMITS, PLUS_PRICE_LKR } from '../config/plans';
+type Tab = 'profile' | 'editor' | 'ai' | 'github' | 'security' | 'billing';
 
 const THEMES = [
   { value: 'dark',          label: 'VS Dark (Default)' },
@@ -54,6 +55,7 @@ const SettingsPage: React.FC = () => {
   const isViewer = user?.role === 'Viewer';
   const [tab, setTab]     = useState<Tab>('profile');
   const [toast, setToast] = useState<{ msg: string; type: 'success'|'error' } | null>(null);
+  const [showUpgrade, setShowUpgrade] = useState(false);
 
   const showToast = (msg: string, type: 'success'|'error' = 'success') => {
     setToast({ msg, type });
@@ -76,6 +78,7 @@ const SettingsPage: React.FC = () => {
 
   const TABS: { id: Tab; label: string; roles: string[] }[] = [
     { id: 'profile',  label: 'Profile',  roles: ['Admin','Developer','Viewer'] },
+    { id: 'billing',  label: 'Billing',  roles: ['Admin','Developer','Viewer'] },
     { id: 'editor',   label: 'Editor',   roles: ['Admin','Developer','Viewer'] },
     { id: 'ai',       label: 'AI',       roles: ['Admin','Developer','Viewer'] },
     { id: 'github',   label: 'GitHub',   roles: ['Admin','Developer'] },
@@ -170,6 +173,60 @@ const SettingsPage: React.FC = () => {
                     style={{ background: '#00D4B8', color: '#0A0A0F' }}>
                     Save Profile
                   </button>
+                )}
+              </div>
+            )}
+
+            {/* ── BILLING ── */}
+            {tab === 'billing' && (
+              <div className="rounded-xl p-6 space-y-5" style={{ background: '#12121A', border: '1px solid #1E1E2E' }}>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-white">Plan &amp; Billing</h3>
+                  <span className="text-xs px-2 py-1 rounded-full font-semibold"
+                    style={{
+                      background: user?.plan === 'plus' ? 'rgba(0,212,184,0.15)' : 'rgba(107,114,128,0.15)',
+                      color: user?.plan === 'plus' ? '#00D4B8' : '#9CA3AF',
+                      border: `1px solid ${user?.plan === 'plus' ? 'rgba(0,212,184,0.3)' : 'rgba(107,114,128,0.3)'}`,
+                    }}>
+                    {user?.plan === 'plus' ? '⚡ PLUS' : 'FREE PLAN'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-px rounded-xl overflow-hidden" style={{ background: '#1E1E2E' }}>
+                  <div className="p-3 text-xs font-semibold" style={{ background: '#0A0A0F', color: '#6B7280' }}>Limit</div>
+                  <div className="p-3 text-xs font-semibold text-center" style={{ background: '#0A0A0F', color: '#9CA3AF' }}>Free</div>
+                  <div className="p-3 text-xs font-semibold text-center" style={{ background: '#0A0A0F', color: '#00D4B8' }}>Plus</div>
+
+                  {([
+                    ['Projects', PLAN_LIMITS.free.maxProjects, PLAN_LIMITS.plus.maxProjects],
+                    ['Folders / project', PLAN_LIMITS.free.maxFoldersPerProject, PLAN_LIMITS.plus.maxFoldersPerProject],
+                    ['Files / project', PLAN_LIMITS.free.maxFilesPerProject, PLAN_LIMITS.plus.maxFilesPerProject],
+                    ['Max file size', `${PLAN_LIMITS.free.maxFileSizeKB }KB`, `${PLAN_LIMITS.plus.maxFileSizeKB/1024}MB`],
+                  ] as [string, string | number, string | number][]).map(([label, free, plus]) => (
+                    <React.Fragment key={label}>
+                      <div className="p-3 text-xs" style={{ background: '#0D0D16', color: '#9CA3AF' }}>{label}</div>
+                      <div className="p-3 text-xs text-center" style={{ background: '#0D0D16', color: '#CBD5E1' }}>{free}</div>
+                      <div className="p-3 text-xs text-center font-medium" style={{ background: '#0D0D16', color: '#00D4B8' }}>{plus}</div>
+                    </React.Fragment>
+                  ))}
+                </div>
+
+                {user?.plan === 'plus' ? (
+                  <p className="text-xs" style={{ color: '#6B7280' }}>
+                    You're on Plus — thanks for supporting DewCode! All limits above are lifted.
+                  </p>
+                ) : (
+                  <div className="flex items-center justify-between pt-1">
+                    <div>
+                      <span className="text-xl font-bold text-white">LKR {PLUS_PRICE_LKR.toLocaleString()}</span>
+                      <span className="text-xs ml-1" style={{ color: '#6B7280' }}>one-time</span>
+                    </div>
+                    <button onClick={() => setShowUpgrade(true)}
+                      className="px-4 py-2 text-sm font-semibold rounded-lg transition-all"
+                      style={{ background: '#00D4B8', color: '#0A0A0F' }}>
+                      ⚡ Upgrade with PayHere
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -321,6 +378,8 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} />}
     </div>
   );
 };

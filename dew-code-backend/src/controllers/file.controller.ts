@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import File from '../models/File';
+import Folder from '../models/Folder';
 import Project from '../models/Project';
 import { sendSuccess, sendError } from '../utils/response';
 
@@ -10,7 +11,7 @@ const assertProjectOwner = async (projectId: string, userId: string): Promise<bo
 
 export const createFile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { fileName, content, language, projectId } = req.body;
+    const { fileName, content, language, projectId, folderId } = req.body;
     if (!fileName?.trim()) { sendError(res, 'File name is required.', 400); return; }
     if (!projectId) { sendError(res, 'Project ID is required.', 400); return; }
 
@@ -18,16 +19,22 @@ export const createFile = async (req: Request, res: Response, next: NextFunction
       sendError(res, 'Project not found or access denied.', 404); return;
     }
 
+    if (folderId) {
+      const folder = await Folder.findOne({ _id: folderId, projectId });
+      if (!folder) { sendError(res, 'Folder not found.', 404); return; }
+    }
+
     const file = await File.create({
       fileName: fileName.trim(),
       content: content ?? '',
       language: language?.trim() || detectLanguage(fileName),
       projectId,
+      folderId: folderId || null,
     });
 
     sendSuccess(res, 'File created.', { file: file.toSafeObject() }, 201);
   } catch (error: unknown) {
-    if ((error as { code?: number }).code === 11000) { sendError(res, 'A file with that name already exists in this project.', 409); return; }
+    if ((error as { code?: number }).code === 11000) { sendError(res, 'A file with that name already exists in this folder.', 409); return; }
     next(error);
   }
 };
@@ -62,16 +69,23 @@ export const updateFile = async (req: Request, res: Response, next: NextFunction
       sendError(res, 'Access denied.', 403); return;
     }
 
-    const { fileName, content, language } = req.body;
+    const { fileName, content, language, folderId } = req.body;
     const updates: Record<string, unknown> = {};
     if (fileName !== undefined) updates.fileName = fileName.trim();
     if (content !== undefined) updates.content = content;
     if (language !== undefined) updates.language = language.trim();
+    if (folderId !== undefined) {
+      if (folderId) {
+        const folder = await Folder.findOne({ _id: folderId, projectId: existing.projectId });
+        if (!folder) { sendError(res, 'Target folder not found.', 404); return; }
+      }
+      updates.folderId = folderId || null;
+    }
 
     const file = await File.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
     sendSuccess(res, 'File updated.', { file: file!.toSafeObject() });
   } catch (error: unknown) {
-    if ((error as { code?: number }).code === 11000) { sendError(res, 'A file with that name already exists in this project.', 409); return; }
+    if ((error as { code?: number }).code === 11000) { sendError(res, 'A file with that name already exists in this folder.', 409); return; }
     next(error);
   }
 };

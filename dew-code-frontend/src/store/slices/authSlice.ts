@@ -10,6 +10,7 @@ export interface AuthUser {
   role: 'Admin' | 'Developer' | 'Viewer';
   avatar?: string;
   isEmailVerified: boolean;
+  plan: 'free' | 'plus';
   createdAt: string;
 }
 
@@ -127,6 +128,9 @@ const authSlice = createSlice({
       persistToken(action.payload);
       setAccessToken(action.payload);
     },
+    setPlan(state, action: PayloadAction<'free' | 'plus'>) {
+      if (state.user) state.user.plan = action.payload;
+    },
   },
   extraReducers: (builder) => {
     // ── initAuth ──────────────────────────────────────────────────────────
@@ -204,5 +208,5 @@ const authSlice = createSlice({
   },
 });
 
-export const { clearError, sessionExpired, setToken } = authSlice.actions;
+export const { clearError, sessionExpired, setToken, setPlan } = authSlice.actions;
 export default authSlice.reducer;

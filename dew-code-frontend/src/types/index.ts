@@ -1,6 +1,7 @@
 // ✅ UPDATED src/types/index.ts — added role helpers and RunOutput type
 
 export type UserRole = 'Admin' | 'Developer' | 'Viewer';
+export type PlanName = 'free' | 'plus';
 
 export interface User {
   id: string;
@@ -9,6 +10,7 @@ export interface User {
   role: UserRole;
   avatar?: string;
   isEmailVerified: boolean;
+  plan: PlanName;
   createdAt: string;
 }
 
@@ -29,6 +31,16 @@ export interface ProjectFile {
   content: string;
   language: string;
   projectId: string;
+  folderId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectFolder {
+  id: string;
+  name: string;
+  projectId: string;
+  parentId: string | null;
   createdAt: string;
   updatedAt: string;
 }

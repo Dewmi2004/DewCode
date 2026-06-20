@@ -37,7 +37,7 @@ export const projectApi = {
 // ── File API ──────────────────────────────────────────────────────────────
 
 export const fileApi = {
-  create: (payload: { fileName: string; content?: string; language?: string; projectId: string }) =>
+  create: (payload: { fileName: string; content?: string; language?: string; projectId: string; folderId?: string | null }) =>
     apiFetch<ApiResponse<{ file: unknown }>>('/api/files', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -49,7 +49,7 @@ export const fileApi = {
   getById: (id: string) =>
     apiFetch<ApiResponse<{ file: unknown }>>(`/api/files/${id}`),
 
-  update: (id: string, data: Partial<{ fileName: string; content: string; language: string }>) =>
+  update: (id: string, data: Partial<{ fileName: string; content: string; language: string; folderId: string | null }>) =>
     apiFetch<ApiResponse<{ file: unknown }>>(`/api/files/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -57,4 +57,26 @@ export const fileApi = {
 
   delete: (id: string) =>
     apiFetch<ApiResponse>(`/api/files/${id}`, { method: 'DELETE' }),
+};
+
+// ── Folder API ────────────────────────────────────────────────────────────
+
+export const folderApi = {
+  create: (payload: { name: string; projectId: string; parentId?: string | null }) =>
+    apiFetch<ApiResponse<{ folder: unknown }>>('/api/folders', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getByProject: (projectId: string) =>
+    apiFetch<ApiResponse<{ folders: unknown[]; count: number }>>(`/api/folders/project/${projectId}`),
+
+  rename: (id: string, name: string) =>
+    apiFetch<ApiResponse<{ folder: unknown }>>(`/api/folders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
+
+  delete: (id: string) =>
+    apiFetch<ApiResponse>(`/api/folders/${id}`, { method: 'DELETE' }),
 };

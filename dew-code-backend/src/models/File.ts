@@ -1,3 +1,7 @@
+// ✅ UPDATED src/models/File.ts
+// Added: folderId (nullable ref to Folder) so files can live inside a
+// VS-Code-style folder tree instead of only flat per-project lists.
+
 import mongoose, { Document, Schema, Model } from 'mongoose';
 
 export interface IFile extends Document {
@@ -6,6 +10,7 @@ export interface IFile extends Document {
   content: string;
   language: string;
   projectId: mongoose.Types.ObjectId;
+  folderId: mongoose.Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
   toSafeObject(): SafeFile;
@@ -17,6 +22,7 @@ export interface SafeFile {
   content: string;
   language: string;
   projectId: string;
+  folderId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -43,12 +49,19 @@ const fileSchema = new Schema<IFile>(
       ref: 'Project',
       required: [true, 'Project reference is required'],
     },
+    folderId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Folder',
+      default: null,
+    },
   },
   { timestamps: true, versionKey: false }
 );
 
 fileSchema.index({ projectId: 1, createdAt: 1 });
-fileSchema.index({ projectId: 1, fileName: 1 }, { unique: true });
+// A file name only needs to be unique within its folder (VS Code rule),
+// not across the whole project.
+fileSchema.index({ projectId: 1, folderId: 1, fileName: 1 }, { unique: true });
 
 fileSchema.methods.toSafeObject = function (): SafeFile {
   return {
@@ -57,6 +70,7 @@ fileSchema.methods.toSafeObject = function (): SafeFile {
     content: this.content,
     language: this.language,
     projectId: this.projectId.toString(),
+    folderId: this.folderId ? this.folderId.toString() : null,
     createdAt: this.createdAt,
     updatedAt: this.updatedAt,
   };

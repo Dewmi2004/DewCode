@@ -4,6 +4,7 @@
 import React, { useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux';
 import { logoutUser } from '../../store/slices/authSlice';
+import UpgradeModal from '../billing/UpgradeModal';
 
 interface SidebarProps {
   activePage: string;
@@ -29,6 +30,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate }) => {
   const user = useAppSelector((s) => s.auth.user);
   const [collapsed, setCollapsed] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
 
   const role = user?.role ?? 'Viewer';
   const navItems = allNavItems.filter((item) => item.roles.includes(role));
@@ -40,6 +42,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate }) => {
   };
 
   return (
+    <>
     <aside
       className="flex flex-col border-r transition-all duration-300"
       style={{
@@ -110,9 +113,39 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate }) => {
                   style={{ background: `${ROLE_COLORS[role]}15`, color: ROLE_COLORS[role], border: `1px solid ${ROLE_COLORS[role]}30`, fontSize: '9px', fontWeight: 600 }}>
                   {role.toUpperCase()}
                 </span>
+                <span className="text-xs px-1.5 py-0.5 rounded-full"
+                  style={{
+                    background: user.plan === 'plus' ? 'rgba(0,212,184,0.15)' : 'rgba(107,114,128,0.15)',
+                    color: user.plan === 'plus' ? '#00D4B8' : '#9CA3AF',
+                    border: `1px solid ${user.plan === 'plus' ? 'rgba(0,212,184,0.3)' : 'rgba(107,114,128,0.3)'}`,
+                    fontSize: '9px', fontWeight: 600,
+                  }}>
+                  {user.plan === 'plus' ? '⚡ PLUS' : 'FREE'}
+                </span>
               </div>
             </div>
           </div>
+        )}
+
+        {user && user.plan !== 'plus' && !collapsed && (
+          <button
+            onClick={() => setShowUpgrade(true)}
+            className="w-full mb-3 px-2 py-2 rounded-md text-xs font-semibold text-left transition-all flex items-center gap-2"
+            style={{ background: 'rgba(0,212,184,0.1)', color: '#00D4B8', border: '1px solid rgba(0,212,184,0.3)' }}
+          >
+            ⚡ Upgrade to Plus
+          </button>
+        )}
+
+        {user && user.plan !== 'plus' && collapsed && (
+          <button
+            onClick={() => setShowUpgrade(true)}
+            className="w-full mb-3 flex justify-center"
+            title="Upgrade to Plus"
+            style={{ color: '#00D4B8' }}
+          >
+            ⚡
+          </button>
         )}
 
         {user && collapsed && (
@@ -138,6 +171,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate }) => {
         </button>
       </div>
     </aside>
+    {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} />}
+    </>
   );
 };
 

@@ -8,6 +8,7 @@ import {
   setActiveProject,
   type Project,
 } from '../../store/slices/projectSlice';
+import UpgradeModal from '../billing/UpgradeModal';
 
 interface Props {
   onNavigate: (page: string) => void;
@@ -170,20 +171,32 @@ const ProjectCard: React.FC<CardProps> = ({ project, onOpen, onDelete }) => (
 
 const ProjectsPage: React.FC<Props> = ({ onNavigate }) => {
   const dispatch = useAppDispatch();
-  const { projects, loading, error } = useAppSelector((s) => s.projects);
+  const { projects, loading, error, maxProjects } = useAppSelector((s) => s.projects);
   const [showCreate, setShowCreate] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState('');
 
   useEffect(() => {
     dispatch(fetchProjects());
   }, [dispatch]);
+
+  const atLimit = maxProjects !== null && projects.length >= maxProjects;
 
   const handleCreate = async (data: { name: string; description: string; language: string }) => {
     setCreateLoading(true);
     try {
       await dispatch(createProject(data)).unwrap();
       setShowCreate(false);
+    } catch (err: unknown) {
+      const upgrade = (err as { upgrade?: boolean })?.upgrade;
+      const message = (err as { message?: string })?.message;
+      if (upgrade) {
+        setShowCreate(false);
+        setUpgradeReason(message || 'You\u2019ve reached the Free plan project limit.');
+        setShowUpgrade(true);
+      }
     } finally {
       setCreateLoading(false);
     }
@@ -212,14 +225,24 @@ const ProjectsPage: React.FC<Props> = ({ onNavigate }) => {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-white text-xl font-bold">Projects</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{projects.length} project{projects.length !== 1 ? 's' : ''}</p>
+          <p className="text-gray-500 text-sm mt-0.5">
+            {projects.length} project{projects.length !== 1 ? 's' : ''}
+            {maxProjects !== null && <span> · {projects.length}/{maxProjects} on Free plan</span>}
+          </p>
         </div>
         <button
           className="px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
           style={{ background: '#00D4B8', color: '#000' }}
-          onClick={() => setShowCreate(true)}
+          onClick={() => {
+            if (atLimit) {
+              setUpgradeReason(`Free plan is limited to ${maxProjects} projects.`);
+              setShowUpgrade(true);
+            } else {
+              setShowCreate(true);
+            }
+          }}
         >
-          + New Project
+          {atLimit ? '⚡ Upgrade for more' : '+ New Project'}
         </button>
       </div>
 
@@ -281,6 +304,8 @@ const ProjectsPage: React.FC<Props> = ({ onNavigate }) => {
           loading={createLoading}
         />
       )}
+
+      {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} reason={upgradeReason} />}
     </div>
   );
 };

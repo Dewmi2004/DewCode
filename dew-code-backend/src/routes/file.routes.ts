@@ -8,6 +8,7 @@ import {
 } from '../controllers/file.controller';
 import { protect } from '../middleware/auth.middleware';
 import { requireWriter } from '../middleware/role.middleware';
+import { checkFileLimit } from '../middleware/planLimiter.middleware';
 
 const router = Router();
 
@@ -18,7 +19,7 @@ router.get('/project/:projectId', getFilesByProject);
 router.get('/:id', getFileById);
 
 // WRITE — Admin + Developer only
-router.post('/',     requireWriter, createFile);
+router.post('/',     requireWriter, checkFileLimit, createFile);
 router.patch('/:id', requireWriter, updateFile);
 router.delete('/:id', requireWriter, deleteFile);
 

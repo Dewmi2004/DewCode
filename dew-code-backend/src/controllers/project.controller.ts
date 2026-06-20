@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import Project from '../models/Project';
 import File from '../models/File';
+import Folder from '../models/Folder';
+import { getPlanLimits } from '../config/plans';
 import { sendSuccess, sendError } from '../utils/response';
 
 export const createProject = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -23,7 +25,14 @@ export const createProject = async (req: Request, res: Response, next: NextFunct
 export const getProjects = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const projects = await Project.find({ owner: req.user!._id }).sort({ createdAt: -1 });
-    sendSuccess(res, 'Projects fetched.', { projects: projects.map((p) => p.toSafeObject()), count: projects.length });
+    const plan = req.user!.plan ?? 'free';
+    const { maxProjects } = getPlanLimits(plan);
+    sendSuccess(res, 'Projects fetched.', {
+      projects: projects.map((p) => p.toSafeObject()),
+      count: projects.length,
+      plan,
+      maxProjects: Number.isFinite(maxProjects) ? maxProjects : null,
+    });
   } catch (error) { next(error); }
 };
 
@@ -62,6 +71,7 @@ export const deleteProject = async (req: Request, res: Response, next: NextFunct
     const project = await Project.findOneAndDelete({ _id: req.params.id, owner: req.user!._id });
     if (!project) { sendError(res, 'Project not found.', 404); return; }
     await File.deleteMany({ projectId: req.params.id });
+    await Folder.deleteMany({ projectId: req.params.id });
     sendSuccess(res, 'Project deleted.');
   } catch (error) { next(error); }
 };

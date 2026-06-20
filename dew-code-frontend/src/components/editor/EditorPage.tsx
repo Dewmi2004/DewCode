@@ -9,6 +9,8 @@ import { useAppDispatch, useAppSelector } from '../../hooks/redux';
 import {
   fetchFiles, setActiveFile, closeFile,
   createFile, updateFile, deleteFile, patchFileContent,
+  fetchFolders, createFolder, renameFolder, deleteFolder,
+  type ProjectFolder,
 } from '../../store/slices/projectSlice';
 import { FileNode, CodeCorrection, CodeSuggestion } from '../../types';
 import Terminal from '../terminal/Terminal';
@@ -18,6 +20,7 @@ import CodeSuggestions from './CodeSuggestions';
 import TopBar from '../layout/TopBar';
 import apiFetch from '../../services/api';
 import { aiApi } from '../../services/aiApi';
+import UpgradeModal from '../billing/UpgradeModal';
 
 // ── Language map ──────────────────────────────────────────────────────────
 const LANG_MAP: Record<string, string> = {
@@ -66,30 +69,46 @@ interface FolderNode {
 }
 interface FileLeafNode { id: string; name: string; type: 'file'; path: string; }
 
-const buildTree = (fileNames: Array<{ id: string; fileName: string }>): Array<FolderNode | FileLeafNode> => {
-  const root: Array<FolderNode | FileLeafNode> = [];
-  const folderMap: Record<string, FolderNode> = {};
-  fileNames.forEach(({ id, fileName }) => {
-    const parts = fileName.split('/');
-    if (parts.length === 1) {
-      root.push({ id, name: fileName, type: 'file', path: fileName });
-    } else {
-      let current = root;
-      let currentPath = '';
-      for (let i = 0; i < parts.length - 1; i++) {
-        const seg = parts[i];
-        currentPath = currentPath ? `${currentPath}/${seg}` : seg;
-        let folder = folderMap[currentPath];
-        if (!folder) {
-          folder = { id: `folder-${currentPath}`, name: seg, type: 'folder', children: [], path: currentPath };
-          folderMap[currentPath] = folder;
-          current.push(folder);
-        }
-        current = folder.children as Array<FolderNode | FileLeafNode>;
-      }
-      current.push({ id, name: parts[parts.length - 1], type: 'file', path: fileName });
-    }
+// Builds a VS-Code-style nested tree directly from explicit Folder
+// documents (parentId chain) + File documents (folderId), instead of
+// inferring structure from slash-delimited file names.
+const buildTree = (
+  folders: ProjectFolder[],
+  fileList: Array<{ id: string; fileName: string; folderId: string | null }>
+): Array<FolderNode | FileLeafNode> => {
+  const folderNodeMap: Record<string, FolderNode> = {};
+  folders.forEach((f) => {
+    folderNodeMap[f.id] = { id: f.id, name: f.name, type: 'folder', children: [], path: f.id };
   });
+
+  const root: Array<FolderNode | FileLeafNode> = [];
+
+  // Link folders to their parent (or root) — sorted so nesting is stable.
+  folders
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach((f) => {
+      const node = folderNodeMap[f.id];
+      if (f.parentId && folderNodeMap[f.parentId]) {
+        folderNodeMap[f.parentId].children.push(node);
+      } else {
+        root.push(node);
+      }
+    });
+
+  // Drop files into their folder (or root) — sorted alphabetically.
+  fileList
+    .slice()
+    .sort((a, b) => a.fileName.localeCompare(b.fileName))
+    .forEach(({ id, fileName, folderId }) => {
+      const leaf: FileLeafNode = { id, name: fileName, type: 'file', path: id };
+      if (folderId && folderNodeMap[folderId]) {
+        folderNodeMap[folderId].children.push(leaf);
+      } else {
+        root.push(leaf);
+      }
+    });
+
   return root;
 };
 
@@ -118,7 +137,7 @@ interface ExecuteResponse {
 
 const EditorPage: React.FC = () => {
   const dispatch = useAppDispatch();
-  const { activeProject, files, openFiles, activeFile, filesLoading } = useAppSelector((s) => s.projects);
+  const { activeProject, files, folders, openFiles, activeFile, filesLoading } = useAppSelector((s) => s.projects);
   const { user }     = useAppSelector((s) => s.auth);
   const settings     = useAppSelector((s) => s.settings.settings);
 
@@ -129,10 +148,17 @@ const EditorPage: React.FC = () => {
   const [showAI,         setShowAI]         = useState(true);
   const [newFileName,    setNewFileName]    = useState('');
   const [showNewFile,    setShowNewFile]    = useState(false);
-  const [newFileParent,  setNewFileParent]  = useState('');
+  const [newFolderName,  setNewFolderName]  = useState('');
+  const [showNewFolder,  setShowNewFolder]  = useState(false);
+  // Folder the next new file/folder should be created inside (null = root)
+  const [newItemParentId, setNewItemParentId] = useState<string | null>(null);
+  const [renaming,       setRenaming]       = useState<{ id: string; type: 'file' | 'folder' } | null>(null);
+  const [renameValue,    setRenameValue]    = useState('');
+  const [showUpgrade,    setShowUpgrade]    = useState(false);
+  const [upgradeReason,  setUpgradeReason]  = useState('');
   const [dirty,          setDirty]          = useState<DirtyMap>({});
   const [saveStatus,     setSaveStatus]     = useState<'idle'|'saving'|'saved'|'error'>('idle');
-  const [contextMenu,    setContextMenu]    = useState<{ x: number; y: number; fileId: string; type: 'file'|'folder'; folderPath?: string } | null>(null);
+  const [contextMenu,    setContextMenu]    = useState<{ x: number; y: number; nodeId: string; type: 'file'|'folder' } | null>(null);
   const [aiContext,      setAiContext]       = useState('');
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [showCorrections, setShowCorrections] = useState(false);
@@ -156,10 +182,14 @@ const EditorPage: React.FC = () => {
   const monacoRef = useRef<Monaco | null>(null);
 
   useEffect(() => {
-    if (activeProject) dispatch(fetchFiles(activeProject.id));
+    if (activeProject) {
+      dispatch(fetchFiles(activeProject.id));
+      dispatch(fetchFolders(activeProject.id));
+    }
   }, [activeProject?.id, dispatch]);
 
-  const tree = buildTree(files.map((f) => ({ id: f.id, fileName: f.fileName })));
+  const tree = buildTree(folders, files.map((f) => ({ id: f.id, fileName: f.fileName, folderId: f.folderId })));
+  const newItemParentName = newItemParentId ? folders.find((f) => f.id === newItemParentId)?.name : null;
 
   const handleEditorMount = (_editor: unknown, monaco: Monaco) => {
     monacoRef.current = monaco;
@@ -223,11 +253,57 @@ const EditorPage: React.FC = () => {
     setTimeout(() => setSaveStatus('idle'), 2000);
   };
 
+  const isUpgradeError = (err: unknown): { upgrade: boolean; message: string } => {
+    const e = err as { upgrade?: boolean; message?: string };
+    return { upgrade: !!e?.upgrade, message: e?.message || 'Action failed.' };
+  };
+
   const handleCreateFile = async () => {
     if (!newFileName.trim() || !activeProject || !canEdit) return;
-    const fullName = newFileParent ? `${newFileParent}/${newFileName.trim()}` : newFileName.trim();
-    await dispatch(createFile({ fileName: fullName, content: '', projectId: activeProject.id }));
-    setNewFileName(''); setShowNewFile(false); setNewFileParent('');
+    try {
+      await dispatch(createFile({
+        fileName: newFileName.trim(),
+        content: '',
+        projectId: activeProject.id,
+        folderId: newItemParentId,
+      })).unwrap();
+      setNewFileName(''); setShowNewFile(false); setNewItemParentId(null);
+    } catch (err: unknown) {
+      const { upgrade, message } = isUpgradeError(err);
+      if (upgrade) { setShowNewFile(false); setUpgradeReason(message); setShowUpgrade(true); }
+    }
+  };
+
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim() || !activeProject || !canEdit) return;
+    try {
+      await dispatch(createFolder({
+        name: newFolderName.trim(),
+        projectId: activeProject.id,
+        parentId: newItemParentId,
+      })).unwrap();
+      setNewFolderName(''); setShowNewFolder(false); setNewItemParentId(null);
+    } catch (err: unknown) {
+      const { upgrade, message } = isUpgradeError(err);
+      if (upgrade) { setShowNewFolder(false); setUpgradeReason(message); setShowUpgrade(true); }
+    }
+  };
+
+  const handleRenameSubmit = async () => {
+    if (!renaming || !renameValue.trim() || !canEdit) { setRenaming(null); return; }
+    if (renaming.type === 'folder') {
+      await dispatch(renameFolder({ id: renaming.id, name: renameValue.trim() }));
+    } else {
+      await dispatch(updateFile({ id: renaming.id, data: { fileName: renameValue.trim() } }));
+    }
+    setRenaming(null); setRenameValue('');
+  };
+
+  const handleDeleteFolderClick = async (folderId: string) => {
+    if (!canEdit) return;
+    setContextMenu(null);
+    if (!window.confirm('Delete this folder and everything inside it? This cannot be undone.')) return;
+    await dispatch(deleteFolder(folderId));
   };
 
   const handleDeleteFile = async (fileId: string) => {
@@ -437,17 +513,34 @@ const EditorPage: React.FC = () => {
   const renderTree = (nodes: Array<FolderNode | FileLeafNode>, depth = 0): React.ReactNode =>
     nodes.map((node) => {
       const indent = 8 + depth * 14;
+      const isRenaming = renaming?.id === node.id && renaming.type === node.type;
+
       if (node.type === 'folder') {
-        const open = expandedFolders[node.path] ?? true;
+        const open = expandedFolders[node.id] ?? true;
         return (
           <React.Fragment key={node.id}>
             <div className="flex items-center gap-1.5 cursor-pointer py-1 group hover:bg-white/5 transition-colors"
               style={{ paddingLeft: `${indent}px`, paddingRight: '8px' }}
-              onClick={() => setExpandedFolders((p) => ({ ...p, [node.path]: !open }))}
-              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, fileId: node.id, type: 'folder', folderPath: node.path }); }}>
+              onClick={() => !isRenaming && setExpandedFolders((p) => ({ ...p, [node.id]: !open }))}
+              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, nodeId: node.id, type: 'folder' }); }}>
               <span className="text-xs" style={{ color: '#6B7280' }}>{open ? '▾' : '▸'}</span>
               <span className="text-xs" style={{ color: '#FBBF24' }}>📁</span>
-              <span className="text-xs truncate flex-1" style={{ color: '#9CA3AF' }}>{node.name}</span>
+              {isRenaming ? (
+                <input autoFocus
+                  className="text-xs flex-1 px-1 rounded outline-none text-white"
+                  style={{ background: '#0A0A0F', border: '1px solid #FBBF24' }}
+                  value={renameValue}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleRenameSubmit();
+                    if (e.key === 'Escape') setRenaming(null);
+                  }}
+                  onBlur={handleRenameSubmit}
+                />
+              ) : (
+                <span className="text-xs truncate flex-1" style={{ color: '#9CA3AF' }}>{node.name}</span>
+              )}
             </div>
             {open && renderTree(node.children as Array<FolderNode | FileLeafNode>, depth + 1)}
           </React.Fragment>
@@ -458,10 +551,25 @@ const EditorPage: React.FC = () => {
         <div key={node.id}
           className="flex items-center gap-2 cursor-pointer group transition-colors py-1"
           style={{ paddingLeft: `${indent}px`, paddingRight: '8px', background: activeFile?.id === node.id ? 'rgba(0,212,184,0.08)' : 'transparent', borderLeft: activeFile?.id === node.id ? '2px solid #00D4B8' : '2px solid transparent' }}
-          onClick={() => file && handleFileSelect(node.id)}
-          onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, fileId: node.id, type: 'file' }); }}>
+          onClick={() => !isRenaming && file && handleFileSelect(node.id)}
+          onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, nodeId: node.id, type: 'file' }); }}>
           <span className="text-xs">{getFileIcon(node.name)}</span>
-          <span className="text-xs truncate flex-1" style={{ color: activeFile?.id === node.id ? '#E2E8F0' : '#9CA3AF' }}>{node.name}</span>
+          {isRenaming ? (
+            <input autoFocus
+              className="text-xs flex-1 px-1 rounded outline-none text-white"
+              style={{ background: '#0A0A0F', border: '1px solid #00D4B8' }}
+              value={renameValue}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRenameSubmit();
+                if (e.key === 'Escape') setRenaming(null);
+              }}
+              onBlur={handleRenameSubmit}
+            />
+          ) : (
+            <span className="text-xs truncate flex-1" style={{ color: activeFile?.id === node.id ? '#E2E8F0' : '#9CA3AF' }}>{node.name}</span>
+          )}
           {dirty[node.id] && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: '#F59E0B' }} />}
         </div>
       );
@@ -561,25 +669,49 @@ const EditorPage: React.FC = () => {
               {activeProject?.name ?? 'Explorer'}
             </span>
             {activeProject && canEdit && (
-              <button onClick={() => { setNewFileParent(''); setShowNewFile((v) => !v); }}
-                className="text-xs hover:text-white px-1 transition-colors" style={{ color: '#6B7280' }} title="New file">
-                +
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => { setNewItemParentId(null); setShowNewFolder(false); setShowNewFile((v) => !v); }}
+                  className="text-xs hover:text-white px-1 transition-colors" style={{ color: '#6B7280' }} title="New file">
+                  📄+
+                </button>
+                <button onClick={() => { setNewItemParentId(null); setShowNewFile(false); setShowNewFolder((v) => !v); }}
+                  className="text-xs hover:text-white px-1 transition-colors" style={{ color: '#6B7280' }} title="New folder">
+                  📁+
+                </button>
+              </div>
             )}
           </div>
 
           {showNewFile && (
             <div className="px-2 py-2 border-b" style={{ borderColor: '#1A1A26' }}>
-              {newFileParent && <p className="text-xs mb-1 truncate" style={{ color: '#6B7280' }}>📁 {newFileParent}/</p>}
+              {newItemParentName && <p className="text-xs mb-1 truncate" style={{ color: '#6B7280' }}>📁 {newItemParentName}/</p>}
               <input autoFocus
                 className="w-full px-2 py-1 text-xs rounded outline-none text-white"
                 style={{ background: '#12121A', border: '1px solid #00D4B8' }}
-                placeholder="filename.java or folder/Main.java"
+                placeholder="filename.java"
                 value={newFileName}
                 onChange={(e) => setNewFileName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleCreateFile();
-                  if (e.key === 'Escape') { setShowNewFile(false); setNewFileName(''); }
+                  if (e.key === 'Escape') { setShowNewFile(false); setNewFileName(''); setNewItemParentId(null); }
+                }}
+              />
+              <p className="text-xs mt-1" style={{ color: '#3A3A50' }}>Enter · Esc to cancel</p>
+            </div>
+          )}
+
+          {showNewFolder && (
+            <div className="px-2 py-2 border-b" style={{ borderColor: '#1A1A26' }}>
+              {newItemParentName && <p className="text-xs mb-1 truncate" style={{ color: '#6B7280' }}>📁 {newItemParentName}/</p>}
+              <input autoFocus
+                className="w-full px-2 py-1 text-xs rounded outline-none text-white"
+                style={{ background: '#12121A', border: '1px solid #FBBF24' }}
+                placeholder="New folder name"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateFolder();
+                  if (e.key === 'Escape') { setShowNewFolder(false); setNewFolderName(''); setNewItemParentId(null); }
                 }}
               />
               <p className="text-xs mt-1" style={{ color: '#3A3A50' }}>Enter · Esc to cancel</p>
@@ -592,7 +724,7 @@ const EditorPage: React.FC = () => {
             ) : activeProject ? (
               tree.length > 0
                 ? renderTree(tree)
-                : <p className="text-xs px-4 py-2" style={{ color: '#6B7280' }}>No files. Press + to create.</p>
+                : <p className="text-xs px-4 py-2" style={{ color: '#6B7280' }}>No files yet. Use 📄+ or 📁+ above.</p>
             ) : (
               <p className="text-xs px-4 py-2" style={{ color: '#6B7280' }}>No project selected</p>
             )}
@@ -600,7 +732,9 @@ const EditorPage: React.FC = () => {
 
           {files.length > 0 && (
             <div className="px-3 py-2 border-t" style={{ borderColor: '#1A1A26' }}>
-              <p className="text-xs" style={{ color: '#3A3A50' }}>{files.length} file{files.length !== 1 ? 's' : ''}</p>
+              <p className="text-xs" style={{ color: '#3A3A50' }}>
+                {files.length} file{files.length !== 1 ? 's' : ''}{folders.length > 0 ? ` · ${folders.length} folder${folders.length !== 1 ? 's' : ''}` : ''}
+              </p>
             </div>
           )}
         </div>
@@ -828,21 +962,53 @@ const EditorPage: React.FC = () => {
       {/* Context menu */}
       {contextMenu && (
         <div className="fixed z-50 rounded-lg shadow-xl overflow-hidden"
-          style={{ top: contextMenu.y, left: contextMenu.x, background: '#1A1A26', border: '1px solid #2A2A3A', minWidth: '160px' }}>
+          style={{ top: contextMenu.y, left: contextMenu.x, background: '#1A1A26', border: '1px solid #2A2A3A', minWidth: '170px' }}>
           {contextMenu.type === 'folder' && canEdit && (
-            <button className="w-full px-3 py-2 text-xs text-left hover:bg-white/5 transition-colors" style={{ color: '#9CA3AF' }}
-              onClick={() => { setNewFileParent(contextMenu.folderPath || ''); setShowNewFile(true); setContextMenu(null); }}>
-              📄 New File Here
-            </button>
+            <>
+              <button className="w-full px-3 py-2 text-xs text-left hover:bg-white/5 transition-colors" style={{ color: '#9CA3AF' }}
+                onClick={() => { setNewItemParentId(contextMenu.nodeId); setShowNewFolder(false); setShowNewFile(true); setContextMenu(null); }}>
+                📄 New File Here
+              </button>
+              <button className="w-full px-3 py-2 text-xs text-left hover:bg-white/5 transition-colors" style={{ color: '#9CA3AF' }}
+                onClick={() => { setNewItemParentId(contextMenu.nodeId); setShowNewFile(false); setShowNewFolder(true); setContextMenu(null); }}>
+                📁 New Folder Here
+              </button>
+              <button className="w-full px-3 py-2 text-xs text-left hover:bg-white/5 transition-colors border-t" style={{ color: '#9CA3AF', borderColor: '#2A2A3A' }}
+                onClick={() => {
+                  const f = folders.find((x) => x.id === contextMenu.nodeId);
+                  setRenaming({ id: contextMenu.nodeId, type: 'folder' });
+                  setRenameValue(f?.name || '');
+                  setContextMenu(null);
+                }}>
+                ✏️ Rename
+              </button>
+              <button className="w-full px-3 py-2 text-xs text-left hover:bg-red-900/20 transition-colors border-t" style={{ color: '#F87171', borderColor: '#2A2A3A' }}
+                onClick={() => handleDeleteFolderClick(contextMenu.nodeId)}>
+                🗑 Delete Folder
+              </button>
+            </>
           )}
           {contextMenu.type === 'file' && canEdit && (
-            <button className="w-full px-3 py-2 text-xs text-left hover:bg-red-900/20 transition-colors" style={{ color: '#F87171' }}
-              onClick={() => handleDeleteFile(contextMenu.fileId)}>
-              🗑 Delete File
-            </button>
+            <>
+              <button className="w-full px-3 py-2 text-xs text-left hover:bg-white/5 transition-colors" style={{ color: '#9CA3AF' }}
+                onClick={() => {
+                  const f = files.find((x) => x.id === contextMenu.nodeId);
+                  setRenaming({ id: contextMenu.nodeId, type: 'file' });
+                  setRenameValue(f?.fileName || '');
+                  setContextMenu(null);
+                }}>
+                ✏️ Rename
+              </button>
+              <button className="w-full px-3 py-2 text-xs text-left hover:bg-red-900/20 transition-colors border-t" style={{ color: '#F87171', borderColor: '#2A2A3A' }}
+                onClick={() => handleDeleteFile(contextMenu.nodeId)}>
+                🗑 Delete File
+              </button>
+            </>
           )}
         </div>
       )}
+
+      {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} reason={upgradeReason} />}
     </div>
   );
 };

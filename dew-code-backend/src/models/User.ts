@@ -4,6 +4,7 @@ import crypto from 'crypto';
 
 export type UserRole = 'Admin' | 'Developer' | 'Viewer';
 export type ThemeName = 'dark' | 'light' | 'solarized' | 'monokai' | 'dracula' | 'nord' | 'high-contrast';
+export type PlanName = 'free' | 'plus';
 
 export interface UserSettings {
   appearance: {
@@ -91,6 +92,8 @@ export interface IUser extends Document {
   loginAttempts: number;
   lockUntil?: Date;
   settings: UserSettings;
+  plan: PlanName;
+  planUpgradedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 
@@ -108,6 +111,7 @@ export interface SafeUser {
   avatar?: string;
   isEmailVerified: boolean;
   settings: UserSettings;
+  plan: PlanName;
   createdAt: Date;
 }
 
@@ -165,6 +169,15 @@ const userSchema = new Schema<IUser>(
       default: 0,
     },
     lockUntil: {
+      type: Date,
+      default: null,
+    },
+    plan: {
+      type: String,
+      enum: ['free', 'plus'],
+      default: 'free',
+    },
+    planUpgradedAt: {
       type: Date,
       default: null,
     },
@@ -332,6 +345,7 @@ userSchema.methods.toSafeObject = function (): SafeUser {
     role: this.role,
     avatar: this.avatar,
     isEmailVerified: this.isEmailVerified,
+    plan: this.plan,
     settings: {
       ...DEFAULT_USER_SETTINGS,
       ...(savedSettings ?? {}),
