@@ -4,11 +4,15 @@ import { useAppDispatch, useAppSelector } from '../../hooks/redux';
 import {
   fetchProjects,
   createProject,
+  updateProject,
   deleteProject,
   setActiveProject,
   type Project,
 } from '../../store/slices/projectSlice';
+import { fetchTeams } from '../../store/slices/teamSlice';
+import type { Team } from '../../types';
 import UpgradeModal from '../billing/UpgradeModal';
+import ShareProjectModal from './ShareProjectModal';
 
 interface Props {
   onNavigate: (page: string) => void;
@@ -26,20 +30,22 @@ const statusColor: Record<string, string> = {
 
 interface CreateModalProps {
   onClose: () => void;
-  onSubmit: (data: { name: string; description: string; language: string }) => Promise<void>;
+  onSubmit: (data: { name: string; description: string; language: string; teamId: string | null }) => Promise<void>;
   loading: boolean;
+  teams: Team[];
 }
 
-const CreateProjectModal: React.FC<CreateModalProps> = ({ onClose, onSubmit, loading }) => {
+const CreateProjectModal: React.FC<CreateModalProps> = ({ onClose, onSubmit, loading, teams }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [language, setLanguage] = useState('JavaScript');
+  const [teamId, setTeamId] = useState<string>('');
   const [error, setError] = useState('');
 
   const handleSubmit = async () => {
     if (!name.trim()) { setError('Project name is required.'); return; }
     setError('');
-    await onSubmit({ name, description, language });
+    await onSubmit({ name, description, language, teamId: teamId || null });
   };
 
   return (
@@ -94,6 +100,24 @@ const CreateProjectModal: React.FC<CreateModalProps> = ({ onClose, onSubmit, loa
               {LANGUAGES.map((l) => <option key={l}>{l}</option>)}
             </select>
           </div>
+
+          {teams.length > 0 && (
+            <div>
+              <label className="text-gray-400 text-sm mb-1 block">Share with team (optional)</label>
+              <select
+                className="w-full px-3 py-2 rounded-lg text-white text-sm outline-none"
+                style={{ background: '#0A0A0F', border: '1px solid #1E1E2E' }}
+                value={teamId}
+                onChange={(e) => setTeamId(e.target.value)}
+              >
+                <option value="">Personal project (just me)</option>
+                {teams.map((t) => <option key={t.id} value={t.id}>👥 {t.name}</option>)}
+              </select>
+              <p className="text-xs mt-1" style={{ color: '#4B5563' }}>
+                Team projects get real-time collaborative editing for every member.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-3 mt-5">
@@ -123,11 +147,13 @@ const CreateProjectModal: React.FC<CreateModalProps> = ({ onClose, onSubmit, loa
 
 interface CardProps {
   project: Project;
+  isOwner: boolean;
   onOpen: () => void;
   onDelete: () => void;
+  onShare: () => void;
 }
 
-const ProjectCard: React.FC<CardProps> = ({ project, onOpen, onDelete }) => (
+const ProjectCard: React.FC<CardProps> = ({ project, isOwner, onOpen, onDelete, onShare }) => (
   <div
     className="rounded-xl p-4 flex flex-col gap-3 cursor-pointer group transition-all"
     style={{ background: '#12121A', border: '1px solid #1E1E2E' }}
@@ -135,7 +161,12 @@ const ProjectCard: React.FC<CardProps> = ({ project, onOpen, onDelete }) => (
   >
     <div className="flex items-start justify-between gap-2">
       <div className="min-w-0">
-        <h3 className="text-white font-semibold truncate">{project.name}</h3>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-white font-semibold truncate">{project.name}</h3>
+          {project.teamId && (
+            <span className="text-xs flex-shrink-0" title="Shared with a team — real-time collaborative">👥</span>
+          )}
+        </div>
         <p className="text-gray-500 text-xs mt-0.5 truncate">{project.description || 'No description'}</p>
       </div>
       <span
@@ -158,12 +189,23 @@ const ProjectCard: React.FC<CardProps> = ({ project, onOpen, onDelete }) => (
       </span>
     </div>
 
-    <button
-      className="text-xs text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-left hover:text-red-300 mt-1"
-      onClick={(e) => { e.stopPropagation(); onDelete(); }}
-    >
-      Delete project
-    </button>
+    <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity mt-1">
+      {isOwner && (
+        <button
+          className="text-xs text-left hover:opacity-80"
+          style={{ color: '#00D4B8' }}
+          onClick={(e) => { e.stopPropagation(); onShare(); }}
+        >
+          👥 {project.teamId ? 'Manage sharing' : 'Share with team'}
+        </button>
+      )}
+      <button
+        className="text-xs text-red-400 text-left hover:text-red-300"
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+      >
+        Delete project
+      </button>
+    </div>
   </div>
 );
 
@@ -172,19 +214,23 @@ const ProjectCard: React.FC<CardProps> = ({ project, onOpen, onDelete }) => (
 const ProjectsPage: React.FC<Props> = ({ onNavigate }) => {
   const dispatch = useAppDispatch();
   const { projects, loading, error, maxProjects } = useAppSelector((s) => s.projects);
+  const { teams } = useAppSelector((s) => s.teams);
+  const user = useAppSelector((s) => s.auth.user);
   const [showCreate, setShowCreate] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState('');
+  const [shareTarget, setShareTarget] = useState<Project | null>(null);
 
   useEffect(() => {
     dispatch(fetchProjects());
+    dispatch(fetchTeams());
   }, [dispatch]);
 
   const atLimit = maxProjects !== null && projects.length >= maxProjects;
 
-  const handleCreate = async (data: { name: string; description: string; language: string }) => {
+  const handleCreate = async (data: { name: string; description: string; language: string; teamId: string | null }) => {
     setCreateLoading(true);
     try {
       await dispatch(createProject(data)).unwrap();
@@ -206,6 +252,11 @@ const ProjectsPage: React.FC<Props> = ({ onNavigate }) => {
     if (window.confirm('Delete this project and all its files?')) {
       dispatch(deleteProject(id));
     }
+  };
+
+  const handleShare = async (teamId: string | null) => {
+    if (!shareTarget) return;
+    await dispatch(updateProject({ id: shareTarget.id, data: { teamId } })).unwrap();
   };
 
   const handleOpen = (project: Project) => {
@@ -290,8 +341,10 @@ const ProjectsPage: React.FC<Props> = ({ onNavigate }) => {
           <ProjectCard
             key={p.id}
             project={p}
+            isOwner={p.owner === user?.id}
             onOpen={() => handleOpen(p)}
             onDelete={() => handleDelete(p.id)}
+            onShare={() => setShareTarget(p)}
           />
         ))}
       </div>
@@ -302,10 +355,20 @@ const ProjectsPage: React.FC<Props> = ({ onNavigate }) => {
           onClose={() => setShowCreate(false)}
           onSubmit={handleCreate}
           loading={createLoading}
+          teams={teams}
         />
       )}
 
       {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} reason={upgradeReason} />}
+
+      {shareTarget && (
+        <ShareProjectModal
+          project={shareTarget}
+          teams={teams}
+          onClose={() => setShareTarget(null)}
+          onShare={handleShare}
+        />
+      )}
     </div>
   );
 };

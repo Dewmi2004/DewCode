@@ -7,13 +7,13 @@ import { Request, Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
 import Folder from '../models/Folder';
 import File from '../models/File';
-import Project from '../models/Project';
+import { findAccessibleProject } from '../utils/projectAccess';
 import { sendSuccess, sendError } from '../utils/response';
 
-const assertProjectOwner = async (projectId: string, userId: string): Promise<boolean> => {
-  const project = await Project.findOne({ _id: projectId, owner: userId });
-  return !!project;
-};
+// Kept as a local wrapper (same name/signature every call site already
+// uses) but now backed by the shared owner-OR-team-member check.
+const assertProjectOwner = async (projectId: string, userId: string): Promise<boolean> =>
+  !!(await findAccessibleProject(projectId, userId));
 
 // Recursively collect a folder + every descendant folder id (BFS).
 const collectFolderAndDescendantIds = async (

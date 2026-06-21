@@ -12,7 +12,7 @@ interface ApiResponse<T = unknown> {
 // ── Project API ───────────────────────────────────────────────────────────
 
 export const projectApi = {
-  create: (payload: { name: string; description?: string; language?: string }) =>
+  create: (payload: { name: string; description?: string; language?: string; teamId?: string | null }) =>
     apiFetch<ApiResponse<{ project: unknown }>>('/api/projects', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -24,7 +24,7 @@ export const projectApi = {
   getById: (id: string) =>
     apiFetch<ApiResponse<{ project: unknown }>>(`/api/projects/${id}`),
 
-  update: (id: string, data: Partial<{ name: string; description: string; language: string; status: string }>) =>
+  update: (id: string, data: Partial<{ name: string; description: string; language: string; status: string; teamId: string | null }>) =>
     apiFetch<ApiResponse<{ project: unknown }>>(`/api/projects/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),

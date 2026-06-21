@@ -5,6 +5,7 @@ export interface IProject extends Document {
   name: string;
   description?: string;
   owner: mongoose.Types.ObjectId;
+  teamId: mongoose.Types.ObjectId | null;
   language: string;
   status: 'Active' | 'Inactive' | 'Archived';
   createdAt: Date;
@@ -17,6 +18,7 @@ export interface SafeProject {
   name: string;
   description?: string;
   owner: string;
+  teamId: string | null;
   language: string;
   status: 'Active' | 'Inactive' | 'Archived';
   createdAt: Date;
@@ -42,6 +44,11 @@ const projectSchema = new Schema<IProject>(
       ref: 'User',
       required: [true, 'Owner is required'],
     },
+    teamId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Team',
+      default: null,
+    },
     language: {
       type: String,
       default: 'JavaScript',
@@ -57,6 +64,7 @@ const projectSchema = new Schema<IProject>(
 );
 
 projectSchema.index({ owner: 1, createdAt: -1 });
+projectSchema.index({ teamId: 1 });
 
 projectSchema.methods.toSafeObject = function (): SafeProject {
   return {
@@ -64,6 +72,7 @@ projectSchema.methods.toSafeObject = function (): SafeProject {
     name: this.name,
     description: this.description,
     owner: this.owner.toString(),
+    teamId: this.teamId ? this.teamId.toString() : null,
     language: this.language,
     status: this.status,
     createdAt: this.createdAt,

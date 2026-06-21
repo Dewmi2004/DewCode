@@ -2,7 +2,7 @@ import mongoose, { Document, Schema, Model } from 'mongoose';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 
-export type UserRole = 'Admin' | 'Developer' | 'Viewer';
+export type UserRole = 'Developer';
 export type ThemeName = 'dark' | 'light' | 'solarized' | 'monokai' | 'dracula' | 'nord' | 'high-contrast';
 export type PlanName = 'free' | 'plus';
 
@@ -140,7 +140,7 @@ const userSchema = new Schema<IUser>(
     },
     role: {
       type: String,
-      enum: ['Admin', 'Developer', 'Viewer'],
+      enum: ['Developer'],
       default: 'Developer',
     },
     avatar: {

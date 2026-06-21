@@ -9,6 +9,7 @@ export interface Project {
   name: string;
   description?: string;
   owner: string;
+  teamId: string | null;
   language: string;
   status: 'Active' | 'Inactive' | 'Archived';
   createdAt: string;
@@ -73,7 +74,10 @@ export const fetchProjects = createAsyncThunk('projects/fetchAll', async () => {
 
 export const createProject = createAsyncThunk(
   'projects/create',
-  async (payload: { name: string; description?: string; language?: string }, { rejectWithValue }) => {
+  async (
+    payload: { name: string; description?: string; language?: string; teamId?: string | null },
+    { rejectWithValue }
+  ) => {
     try {
       const resp = await projectApi.create(payload);
       return resp.data!.project as Project;

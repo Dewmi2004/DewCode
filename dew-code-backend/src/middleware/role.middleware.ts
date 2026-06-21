@@ -1,22 +1,15 @@
-// ✅ NEW FILE: src/middleware/role.middleware.ts
-// Place at: dew-code-backend/src/middleware/role.middleware.ts
-//
-// Usage in routes:
-//   router.delete('/:id', authenticate, requireRole('Admin'), deleteProject);
-//   router.patch('/:id', authenticate, requireRole('Admin', 'Developer'), updateProject);
+// ✅ UPDATED src/middleware/role.middleware.ts
+// There is only one role now (Developer) — access tiers are handled by
+// PLAN (free/plus, see planLimiter.middleware.ts), not by role. This file
+// is kept mainly so existing routes that import `requireWriter` don't need
+// touching; it now just confirms the request is from an authenticated
+// account (which can only ever be role 'Developer').
 
 import { Request, Response, NextFunction } from 'express';
 import { sendError } from '../utils/response';
 
-type UserRole = 'Admin' | 'Developer' | 'Viewer';
+type UserRole = 'Developer';
 
-/**
- * Middleware: only allow requests from users with one of the specified roles.
- * Must be used AFTER the `authenticate` middleware.
- *
- * @example
- * router.delete('/:id', authenticate, requireRole('Admin'), handler);
- */
 export const requireRole = (...roles: UserRole[]) =>
   (req: Request, res: Response, next: NextFunction): void => {
     const userRole = req.user?.role as UserRole | undefined;
@@ -27,24 +20,13 @@ export const requireRole = (...roles: UserRole[]) =>
     }
 
     if (!roles.includes(userRole)) {
-      sendError(
-        res,
-        `Access denied. Required role: ${roles.join(' or ')}. Your role: ${userRole}.`,
-        403
-      );
+      sendError(res, `Access denied. Required role: ${roles.join(' or ')}. Your role: ${userRole}.`, 403);
       return;
     }
 
     next();
   };
 
-/**
- * Middleware: block Viewer role from mutating resources.
- * Equivalent to requireRole('Admin', 'Developer').
- */
-export const requireWriter = requireRole('Admin', 'Developer');
-
-/**
- * Middleware: allow only Admin.
- */
-export const requireAdmin = requireRole('Admin');
+// Kept for backwards compatibility with existing route imports — always
+// passes for any authenticated user, since Developer is the only role.
+export const requireWriter = requireRole('Developer');

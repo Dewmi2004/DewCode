@@ -10,6 +10,7 @@ import Dashboard from './components/dashboard/Dashboard';
 import ProjectsPage from './components/projects/ProjectsPage';
 import EditorPage from './components/editor/EditorPage';
 import AIPage from './pages/AIPage';
+import TeamsPage from './components/team/TeamsPage';
 import SettingsPage from './pages/SettingsPage';
 
 // ── Auth loading splash ───────────────────────────────────────────────────
@@ -48,6 +49,7 @@ const MainApp: React.FC<MainAppProps> = ({ page, onNavigate }) => {
       case 'projects':  return <ProjectsPage onNavigate={onNavigate} />;
       case 'editor':    return <EditorPage />;
       case 'ai':        return <AIPage />;
+      case 'teams':     return <TeamsPage />;
       case 'settings':  return <SettingsPage />;
       default:          return <Dashboard onNavigate={onNavigate} />;
     }
@@ -65,13 +67,14 @@ const MainApp: React.FC<MainAppProps> = ({ page, onNavigate }) => {
 
 // ── Root component ────────────────────────────────────────────────────────
 
-type RouteName = 'landing' | 'auth' | 'dashboard' | 'projects' | 'editor' | 'ai' | 'settings';
+type RouteName = 'landing' | 'auth' | 'dashboard' | 'projects' | 'editor' | 'ai' | 'teams' | 'settings';
 
 const pagePaths: Record<string, string> = {
   dashboard: '/app',
   projects: '/projects',
   editor: '/editor',
   ai: '/ai',
+  teams: '/teams',
   settings: '/settings',
 };
 
@@ -93,6 +96,9 @@ const getRouteFromPath = (path: string): RouteName => {
     case '/ai':
     case '/app/ai':
       return 'ai';
+    case '/teams':
+    case '/app/teams':
+      return 'teams';
     case '/settings':
     case '/app/settings':
       return 'settings';

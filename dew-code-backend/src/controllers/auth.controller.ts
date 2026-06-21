@@ -20,7 +20,7 @@ export const register = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password } = req.body;
 
     if (!name || !email || !password) {
       sendError(res, 'Name, email, and password are required.', 400);
@@ -49,14 +49,14 @@ export const register = async (
       return;
     }
 
-    const allowedRoles = ['Developer', 'Viewer'];
-    const assignedRole = allowedRoles.includes(role) ? role : 'Developer';
-
+    // Only one role exists now — every account is a Developer. Access to
+    // Plus-only features (teams, real-time collaboration) is gated by
+    // plan, not role.
     const user = await User.create({
       name: name.trim(),
       email: email.toLowerCase().trim(),
       password,
-      role: assignedRole,
+      role: 'Developer',
     });
 
     const safeUser = user.toSafeObject();

@@ -3,18 +3,25 @@ import Project from '../models/Project';
 import File from '../models/File';
 import Folder from '../models/Folder';
 import { getPlanLimits } from '../config/plans';
+import { findAccessibleProject, getAccessibleProjectFilter, isTeamMember } from '../utils/projectAccess';
 import { sendSuccess, sendError } from '../utils/response';
 
 export const createProject = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { name, description, language } = req.body;
+    const { name, description, language, teamId } = req.body;
     if (!name?.trim()) { sendError(res, 'Project name is required.', 400); return; }
+
+    if (teamId) {
+      const allowed = await isTeamMember(teamId, req.user!._id.toString());
+      if (!allowed) { sendError(res, 'You are not a member of that team.', 403); return; }
+    }
 
     const project = await Project.create({
       name: name.trim(),
       description: description?.trim() ?? '',
       language: language?.trim() || 'JavaScript',
       owner: req.user!._id,
+      teamId: teamId || null,
       status: 'Active',
     });
 
@@ -24,21 +31,27 @@ export const createProject = async (req: Request, res: Response, next: NextFunct
 
 export const getProjects = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const projects = await Project.find({ owner: req.user!._id }).sort({ createdAt: -1 });
+    const userId = req.user!._id.toString();
+    const filter = await getAccessibleProjectFilter(userId);
+    const projects = await Project.find(filter).sort({ createdAt: -1 });
     const plan = req.user!.plan ?? 'free';
     const { maxProjects } = getPlanLimits(plan);
+    // The plan limit only counts projects you OWN — shared team projects
+    // someone else created don't count against your own quota.
+    const ownedCount = await Project.countDocuments({ owner: userId });
     sendSuccess(res, 'Projects fetched.', {
       projects: projects.map((p) => p.toSafeObject()),
       count: projects.length,
       plan,
       maxProjects: Number.isFinite(maxProjects) ? maxProjects : null,
+      ownedCount,
     });
   } catch (error) { next(error); }
 };
 
 export const getProjectById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const project = await Project.findOne({ _id: req.params.id, owner: req.user!._id });
+    const project = await findAccessibleProject(req.params.id, req.user!._id.toString());
     if (!project) { sendError(res, 'Project not found.', 404); return; }
     sendSuccess(res, 'Project fetched.', { project: project.toSafeObject() });
   } catch (error) { next(error); }
@@ -46,7 +59,10 @@ export const getProjectById = async (req: Request, res: Response, next: NextFunc
 
 export const updateProject = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { name, description, language, status } = req.body;
+    const accessible = await findAccessibleProject(req.params.id, req.user!._id.toString());
+    if (!accessible) { sendError(res, 'Project not found.', 404); return; }
+
+    const { name, description, language, status, teamId } = req.body;
     const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.name = name.trim();
     if (description !== undefined) updates.description = description.trim();
@@ -56,18 +72,33 @@ export const updateProject = async (req: Request, res: Response, next: NextFunct
       updates.status = status;
     }
 
-    const project = await Project.findOneAndUpdate(
-      { _id: req.params.id, owner: req.user!._id },
-      updates,
-      { new: true, runValidators: true }
-    );
-    if (!project) { sendError(res, 'Project not found.', 404); return; }
-    sendSuccess(res, 'Project updated.', { project: project.toSafeObject() });
+    // Sharing/unsharing changes who else can see and live-edit this project,
+    // so only the actual owner can do it — a team member with edit access
+    // shouldn't be able to re-route the project to a different team or
+    // strip it away from the one that's currently using it.
+    if (teamId !== undefined) {
+      if (accessible.owner.toString() !== req.user!._id.toString()) {
+        sendError(res, 'Only the project owner can change who it is shared with.', 403);
+        return;
+      }
+      if (teamId === null) {
+        updates.teamId = null;
+      } else {
+        const allowed = await isTeamMember(teamId, req.user!._id.toString());
+        if (!allowed) { sendError(res, 'You are not a member of that team.', 403); return; }
+        updates.teamId = teamId;
+      }
+    }
+
+    const project = await Project.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
+    sendSuccess(res, 'Project updated.', { project: project!.toSafeObject() });
   } catch (error) { next(error); }
 };
 
 export const deleteProject = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    // Deletion stays creator-only — team members can edit, but only the
+    // project's original owner can delete it outright.
     const project = await Project.findOneAndDelete({ _id: req.params.id, owner: req.user!._id });
     if (!project) { sendError(res, 'Project not found.', 404); return; }
     await File.deleteMany({ projectId: req.params.id });

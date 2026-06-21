@@ -8,16 +8,16 @@ import cors from 'cors';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import mongoSanitize from 'express-mongo-sanitize';
-import { apiLimiter } from './middleware/rateLimiter.middleware';
-import errorHandler from './middleware/error.middleware';
-import authRoutes     from './routes/auth.routes';
-import userRoutes     from './routes/user.routes';
-import projectRoutes  from './routes/project.routes';
-import fileRoutes     from './routes/file.routes';
-import folderRoutes   from './routes/folder.routes';
-import aiRoutes       from './routes/ai.routes';
-import terminalRoutes from './routes/terminal.routes';
-import paymentRoutes  from './routes/payment.routes';
+import { apiLimiter } from '../middleware/rateLimiter.middleware';
+import errorHandler from '../middleware/error.middleware';
+import authRoutes     from '../routes/auth.routes';
+import userRoutes     from '../routes/user.routes';
+import projectRoutes  from '../routes/project.routes';
+import fileRoutes     from '../routes/file.routes';
+import folderRoutes   from '../routes/folder.routes';
+import aiRoutes       from '../routes/ai.routes';
+import terminalRoutes from '../routes/terminal.routes';
+import paymentRoutes  from '../routes/payment.routes';
 
 const app: Application = express();
 

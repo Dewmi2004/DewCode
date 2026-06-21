@@ -123,7 +123,7 @@ export interface AuthResponse {
       id: string;
       name: string;
       email: string;
-      role: 'Admin' | 'Developer' | 'Viewer';
+      role: 'Developer';
       avatar?: string;
       isEmailVerified: boolean;
       plan: 'free' | 'plus';

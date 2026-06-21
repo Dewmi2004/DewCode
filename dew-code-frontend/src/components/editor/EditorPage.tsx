@@ -10,8 +10,10 @@ import {
   fetchFiles, setActiveFile, closeFile,
   createFile, updateFile, deleteFile, patchFileContent,
   fetchFolders, createFolder, renameFolder, deleteFolder,
+  updateProject,
   type ProjectFolder,
 } from '../../store/slices/projectSlice';
+import { fetchTeams } from '../../store/slices/teamSlice';
 import { FileNode, CodeCorrection, CodeSuggestion } from '../../types';
 import Terminal from '../terminal/Terminal';
 import AIAssistant from '../ai/AIAssistant';
@@ -21,6 +23,13 @@ import TopBar from '../layout/TopBar';
 import apiFetch from '../../services/api';
 import { aiApi } from '../../services/aiApi';
 import UpgradeModal from '../billing/UpgradeModal';
+import ShareProjectModal from '../projects/ShareProjectModal';
+import { connectCollabSocket, disconnectCollabSocket, getCollabSocket } from '../../services/socket';
+
+// ── Real-time collaboration types ──────────────────────────────────────────
+
+interface CollabPresence { userId: string; name: string; color: string; }
+interface RemoteCursor extends CollabPresence { position: { lineNumber: number; column: number }; }
 
 // ── Language map ──────────────────────────────────────────────────────────
 const LANG_MAP: Record<string, string> = {
@@ -138,11 +147,16 @@ interface ExecuteResponse {
 const EditorPage: React.FC = () => {
   const dispatch = useAppDispatch();
   const { activeProject, files, folders, openFiles, activeFile, filesLoading } = useAppSelector((s) => s.projects);
-  const { user }     = useAppSelector((s) => s.auth);
   const settings     = useAppSelector((s) => s.settings.settings);
+  const user          = useAppSelector((s) => s.auth.user);
+  const { teams }      = useAppSelector((s) => s.teams);
+  const isProjectOwner = !!activeProject && activeProject.owner === user?.id;
+  const [showShare,    setShowShare]    = useState(false);
 
-  const isViewer = user?.role === 'Viewer';
-  const canEdit  = !isViewer;
+  // There's only one role now (Developer) — no read-only viewer tier.
+  // Keeping the names so the rest of this file doesn't need touching.
+  const isViewer = false;
+  const canEdit  = true;
 
   const [showTerminal,   setShowTerminal]   = useState(true);
   const [showAI,         setShowAI]         = useState(true);
@@ -180,6 +194,108 @@ const EditorPage: React.FC = () => {
   const runStdinInputRef = useRef<HTMLInputElement>(null);
 
   const monacoRef = useRef<Monaco | null>(null);
+  const editorRef = useRef<any>(null);
+
+  // ── Real-time collaboration state ──────────────────────────────────────
+  // Available whenever the open project is shared with a team (teamId set).
+  // Team creation itself is Plus-gated server-side; individual members
+  // don't each need their own Plus plan to take part.
+  const [collaborators, setCollaborators] = useState<CollabPresence[]>([]);
+  const [remoteCursors, setRemoteCursors] = useState<Record<string, RemoteCursor>>({});
+  const isCollabEligible = !!activeProject?.teamId;
+  const isCollabEligibleRef = useRef(isCollabEligible);
+  const activeFileIdRef = useRef<string | null>(null);
+  const activeProjectIdRef = useRef<string | null>(null);
+  const cursorDecorationIdsRef = useRef<string[]>([]);
+  const cursorEmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const codeChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => { isCollabEligibleRef.current = isCollabEligible; }, [isCollabEligible]);
+  useEffect(() => { activeFileIdRef.current = activeFile?.id ?? null; }, [activeFile?.id]);
+  useEffect(() => { activeProjectIdRef.current = activeProject?.id ?? null; }, [activeProject?.id]);
+
+  // Only the owner can (re)share a project, and only they see the Share
+  // button below — load the team list lazily for them, once.
+  useEffect(() => {
+    if (isProjectOwner) dispatch(fetchTeams());
+  }, [isProjectOwner, dispatch]);
+
+  // Connect once per team-shared project; tear down when leaving it.
+  useEffect(() => {
+    if (!isCollabEligible) return;
+    const socket = connectCollabSocket();
+
+    const onPresence = (list: CollabPresence[]) => setCollaborators(list);
+    const onUserJoined = (p: CollabPresence) =>
+      setCollaborators((prev) => (prev.some((x) => x.userId === p.userId) ? prev : [...prev, p]));
+    const onUserLeft = ({ userId }: { userId: string }) => {
+      setCollaborators((prev) => prev.filter((p) => p.userId !== userId));
+      setRemoteCursors((prev) => { const next = { ...prev }; delete next[userId]; return next; });
+    };
+    const onCursorUpdate = (data: RemoteCursor) =>
+      setRemoteCursors((prev) => ({ ...prev, [data.userId]: data }));
+    const onCodeUpdate = ({ content }: { userId: string; content: string }) => {
+      if (!activeFileIdRef.current) return;
+      const ed = editorRef.current;
+      const savedPosition = ed?.getPosition?.();
+      const savedScrollTop = ed?.getScrollTop?.();
+      dispatch(patchFileContent({ id: activeFileIdRef.current, content }));
+      // @monaco-editor/react resets cursor/scroll when `value` changes
+      // externally — put the local typist back where they were.
+      requestAnimationFrame(() => {
+        if (ed && savedPosition) {
+          ed.setPosition(savedPosition);
+          if (savedScrollTop != null) ed.setScrollTop(savedScrollTop);
+        }
+      });
+    };
+    const onCollabError = (message: string) => { console.warn('Collaboration:', message); setCollaborators([]); };
+
+    socket.on('presence', onPresence);
+    socket.on('user-joined', onUserJoined);
+    socket.on('user-left', onUserLeft);
+    socket.on('cursor-update', onCursorUpdate);
+    socket.on('code-update', onCodeUpdate);
+    socket.on('collab-error', onCollabError);
+
+    return () => {
+      socket.off('presence', onPresence);
+      socket.off('user-joined', onUserJoined);
+      socket.off('user-left', onUserLeft);
+      socket.off('cursor-update', onCursorUpdate);
+      socket.off('code-update', onCodeUpdate);
+      socket.off('collab-error', onCollabError);
+      disconnectCollabSocket();
+      setCollaborators([]);
+      setRemoteCursors({});
+    };
+  }, [isCollabEligible, activeProject?.id, dispatch]);
+
+  // Join/leave the per-file room whenever the open file changes.
+  useEffect(() => {
+    if (!isCollabEligible || !activeFile || !activeProject) return;
+    const socket = connectCollabSocket();
+    setRemoteCursors({});
+    socket.emit('join-file', { fileId: activeFile.id, projectId: activeProject.id });
+    return () => { socket.emit('leave-file'); };
+  }, [isCollabEligible, activeFile?.id, activeProject?.id]);
+
+  // Render remote cursors as colored carets in the editor.
+  useEffect(() => {
+    const ed = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!ed || !monaco) return;
+    const decorations = Object.values(remoteCursors).map((c) => ({
+      range: new monaco.Range(c.position.lineNumber, c.position.column, c.position.lineNumber, c.position.column),
+      options: {
+        beforeContentClassName: `remote-cursor-${c.color.replace('#', '')}`,
+        hoverMessage: { value: `**${c.name}**` },
+      },
+    }));
+    cursorDecorationIdsRef.current = ed.deltaDecorations(cursorDecorationIdsRef.current, decorations);
+  }, [remoteCursors]);
+
+  const remoteCursorColors = Array.from(new Set(Object.values(remoteCursors).map((c) => c.color)));
 
   useEffect(() => {
     if (activeProject) {
@@ -191,8 +307,24 @@ const EditorPage: React.FC = () => {
   const tree = buildTree(folders, files.map((f) => ({ id: f.id, fileName: f.fileName, folderId: f.folderId })));
   const newItemParentName = newItemParentId ? folders.find((f) => f.id === newItemParentId)?.name : null;
 
-  const handleEditorMount = (_editor: unknown, monaco: Monaco) => {
+  const handleEditorMount = (editorInstance: any, monaco: Monaco) => {
+    editorRef.current = editorInstance;
     monacoRef.current = monaco;
+
+    editorInstance.onDidChangeCursorPosition((e: { position: { lineNumber: number; column: number } }) => {
+      if (!isCollabEligibleRef.current || !activeFileIdRef.current) return;
+      if (cursorEmitTimerRef.current) clearTimeout(cursorEmitTimerRef.current);
+      cursorEmitTimerRef.current = setTimeout(() => {
+        const socket = getCollabSocket();
+        if (socket?.connected && activeFileIdRef.current) {
+          socket.emit('cursor-move', {
+            fileId: activeFileIdRef.current,
+            position: { lineNumber: e.position.lineNumber, column: e.position.column },
+          });
+        }
+      }, 120);
+    });
+
     monaco.languages.registerCompletionItemProvider('typescript', {
       provideCompletionItems: (model: any, position: any) => {
         const word  = model.getWordUntilPosition(position);
@@ -230,6 +362,15 @@ const EditorPage: React.FC = () => {
     dispatch(patchFileContent({ id: activeFile.id, content: value }));
     setDirty((d) => ({ ...d, [activeFile.id]: true }));
     setSaveStatus('idle');
+
+    if (isCollabEligible) {
+      const fileId = activeFile.id;
+      if (codeChangeTimerRef.current) clearTimeout(codeChangeTimerRef.current);
+      codeChangeTimerRef.current = setTimeout(() => {
+        const socket = getCollabSocket();
+        if (socket?.connected) socket.emit('code-change', { fileId, content: value });
+      }, 150);
+    }
   };
 
   const handleSave = useCallback(async () => {
@@ -577,10 +718,36 @@ const EditorPage: React.FC = () => {
 
   return (
     <div className="flex flex-col flex-1 h-screen overflow-hidden" style={{ background: '#0A0A0F' }}>
+      {remoteCursorColors.length > 0 && (
+        <style>
+          {remoteCursorColors.map((c) => `
+            .remote-cursor-${c.replace('#', '')}::before {
+              content: '';
+              position: absolute;
+              width: 2px;
+              height: 100%;
+              background: ${c};
+              z-index: 20;
+            }
+          `).join('\n')}
+        </style>
+      )}
       <TopBar
         title={activeProject ? `📁 ${activeProject.name}` : 'Editor Workspace'}
         extra={
           <div className="flex items-center gap-2 flex-wrap">
+            {isProjectOwner && (
+              <button onClick={() => setShowShare(true)}
+                className="px-2.5 py-1 text-xs rounded-md font-medium transition-all flex items-center gap-1"
+                style={{
+                  background: activeProject?.teamId ? 'rgba(0,212,184,0.1)' : '#1A1A26',
+                  color: activeProject?.teamId ? '#00D4B8' : '#9CA3AF',
+                  border: `1px solid ${activeProject?.teamId ? 'rgba(0,212,184,0.3)' : '#2A2A3A'}`,
+                }}
+                title="Share this project with a team for real-time collaboration">
+                👥 {activeProject?.teamId ? 'Shared' : 'Share'}
+              </button>
+            )}
             {isViewer && (
               <span className="px-2 py-0.5 text-xs rounded-full" style={{ background: 'rgba(251,191,36,0.1)', color: '#FBBF24', border: '1px solid rgba(251,191,36,0.3)' }}>
                 👁 View Only
@@ -766,6 +933,18 @@ const EditorPage: React.FC = () => {
                   <span>{activeProject?.name}</span>
                   <span>›</span>
                   <span style={{ color: '#6B7280' }}>{activeFile.fileName}</span>
+                  {isCollabEligible && collaborators.length > 0 && (
+                    <div className="flex items-center -space-x-1.5 ml-2" title="Live collaborators">
+                      {collaborators.map((c) => (
+                        <div key={c.userId}
+                          className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold border-2"
+                          style={{ background: c.color, color: '#0A0A0F', borderColor: '#0A0A0F' }}
+                          title={c.name}>
+                          {c.name[0]?.toUpperCase()}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <span className="ml-auto" style={{ color: '#3A3A50' }}>{getLang(activeFile.fileName)}</span>
                   {isViewer && <span className="text-xs" style={{ color: '#FBBF24' }}>read-only</span>}
                   {canRunFile(activeFile.fileName) && <span className="text-xs" style={{ color: '#4ADE80' }}>● runnable</span>}
@@ -1009,6 +1188,17 @@ const EditorPage: React.FC = () => {
       )}
 
       {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} reason={upgradeReason} />}
+
+      {showShare && activeProject && (
+        <ShareProjectModal
+          project={activeProject}
+          teams={teams}
+          onClose={() => setShowShare(false)}
+          onShare={async (teamId) => {
+            await dispatch(updateProject({ id: activeProject.id, data: { teamId } })).unwrap();
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -10,6 +10,7 @@ import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import { updateSettings, updateEditorSettings, updateAISettings } from '../features/settings/settingsSlice';
 import UpgradeModal from '../components/billing/UpgradeModal';
 import { PLAN_LIMITS, PLUS_PRICE_LKR } from '../config/plans';
+
 type Tab = 'profile' | 'editor' | 'ai' | 'github' | 'security' | 'billing';
 
 const THEMES = [
@@ -30,11 +31,7 @@ const AI_MODELS = [
   { value: 'llama3.2',         label: 'Llama 3.2' },
 ];
 
-const ROLE_DESCRIPTIONS: Record<string, string> = {
-  Admin:     'Full access — manage users, projects, settings',
-  Developer: 'Create and edit projects and files, use AI',
-  Viewer:    'Read-only access — cannot edit files or settings',
-};
+const ROLE_DESCRIPTION = 'Create and edit projects and files, use AI';
 
 const Toggle: React.FC<{ value: boolean; onChange: (v: boolean) => void; disabled?: boolean }> = ({ value, onChange, disabled }) => (
   <button
@@ -52,8 +49,10 @@ const SettingsPage: React.FC = () => {
   const settings = useAppSelector((s) => s.settings.settings);
   const loading = useAppSelector((s) => s.settings.loading);
 
-  const isViewer = user?.role === 'Viewer';
   const [tab, setTab]     = useState<Tab>('profile');
+  // Single role now — nothing is read-only-by-role anymore. Kept as a
+  // constant so the disabled={isViewer} props below don't need touching.
+  const isViewer = false;
   const [toast, setToast] = useState<{ msg: string; type: 'success'|'error' } | null>(null);
   const [showUpgrade, setShowUpgrade] = useState(false);
 
@@ -76,16 +75,15 @@ const SettingsPage: React.FC = () => {
     } catch { showToast('Save failed', 'error'); }
   };
 
-  const TABS: { id: Tab; label: string; roles: string[] }[] = [
-    { id: 'profile',  label: 'Profile',  roles: ['Admin','Developer','Viewer'] },
-    { id: 'billing',  label: 'Billing',  roles: ['Admin','Developer','Viewer'] },
-    { id: 'editor',   label: 'Editor',   roles: ['Admin','Developer','Viewer'] },
-    { id: 'ai',       label: 'AI',       roles: ['Admin','Developer','Viewer'] },
-    { id: 'github',   label: 'GitHub',   roles: ['Admin','Developer'] },
-    { id: 'security', label: 'Security', roles: ['Admin','Developer'] },
+  // Single-role app now — every signed-in account sees every tab.
+  const visibleTabs: { id: Tab; label: string }[] = [
+    { id: 'profile',  label: 'Profile' },
+    { id: 'billing',  label: 'Billing' },
+    { id: 'editor',   label: 'Editor' },
+    { id: 'ai',       label: 'AI' },
+    { id: 'github',   label: 'GitHub' },
+    { id: 'security', label: 'Security' },
   ];
-
-  const visibleTabs = TABS.filter((t) => t.roles.includes(user?.role ?? 'Viewer'));
 
   const inputStyle: React.CSSProperties = {
     background: '#0A0A0F', border: '1px solid #2A2A3A',
@@ -93,8 +91,7 @@ const SettingsPage: React.FC = () => {
     padding: '8px 12px', fontSize: '14px', outline: 'none',
   };
 
-  const ROLE_COLORS: Record<string, string> = { Admin: '#F87171', Developer: '#00D4B8', Viewer: '#FBBF24' };
-  const roleColor = ROLE_COLORS[user?.role ?? 'Viewer'];
+  const roleColor = '#00D4B8';
 
   return (
     <div className="flex flex-col flex-1 h-screen overflow-hidden" style={{ background: '#0A0A0F' }}>
@@ -154,7 +151,7 @@ const SettingsPage: React.FC = () => {
                       </span>
                     </div>
                     <p className="text-xs mt-1" style={{ color: '#4B5563' }}>
-                      {ROLE_DESCRIPTIONS[user?.role ?? 'Viewer']}
+                      {ROLE_DESCRIPTION}
                     </p>
                   </div>
                 </div>
@@ -201,7 +198,7 @@ const SettingsPage: React.FC = () => {
                     ['Projects', PLAN_LIMITS.free.maxProjects, PLAN_LIMITS.plus.maxProjects],
                     ['Folders / project', PLAN_LIMITS.free.maxFoldersPerProject, PLAN_LIMITS.plus.maxFoldersPerProject],
                     ['Files / project', PLAN_LIMITS.free.maxFilesPerProject, PLAN_LIMITS.plus.maxFilesPerProject],
-                    ['Max file size', `${PLAN_LIMITS.free.maxFileSizeKB }KB`, `${PLAN_LIMITS.plus.maxFileSizeKB/1024}MB`],
+                    ['Max file size', `${PLAN_LIMITS.free.maxFileSizeKB}KB`, `${PLAN_LIMITS.plus.maxFileSizeKB / 1024}MB`],
                   ] as [string, string | number, string | number][]).map(([label, free, plus]) => (
                     <React.Fragment key={label}>
                       <div className="p-3 text-xs" style={{ background: '#0D0D16', color: '#9CA3AF' }}>{label}</div>

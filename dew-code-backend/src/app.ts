@@ -18,6 +18,7 @@ import folderRoutes   from './routes/folder.routes';
 import aiRoutes       from './routes/ai.routes';
 import terminalRoutes from './routes/terminal.routes';
 import paymentRoutes  from './routes/payment.routes';
+import teamRoutes     from './routes/team.routes';
 
 const app: Application = express();
 
@@ -70,6 +71,7 @@ app.use('/api/folders',  folderRoutes);
 app.use('/api/ai',       aiRoutes);
 app.use('/api/terminal', terminalRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/teams',    teamRoutes);
 
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ success: false, message: 'Route not found.' });

@@ -1,5 +1,7 @@
 // ✅ UPDATED Sidebar.tsx
-// Changes: Role badge per user, Admin-only nav items, collapse toggle, better UI
+// Single-role app now (just "Developer") — nav items are no longer
+// filtered by role. Plus-only features still show their own upgrade
+// prompts inline (e.g. Teams page gates team creation by plan).
 
 import React, { useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux';
@@ -11,19 +13,14 @@ interface SidebarProps {
   onNavigate: (page: string) => void;
 }
 
-const allNavItems = [
-  { id: 'dashboard', label: 'Dashboard',    icon: '⊞',  roles: ['Admin','Developer','Viewer'] },
-  { id: 'projects',  label: 'Projects',     icon: '📁',  roles: ['Admin','Developer','Viewer'] },
-  { id: 'editor',    label: 'Editor',       icon: '<>',  roles: ['Admin','Developer','Viewer'] },
-  { id: 'ai',        label: 'AI Assistant', icon: '✦',   roles: ['Admin','Developer','Viewer'] },
-  { id: 'settings',  label: 'Settings',     icon: '⚙',   roles: ['Admin','Developer'] },
+const navItems = [
+  { id: 'dashboard', label: 'Dashboard',    icon: '⊞' },
+  { id: 'projects',  label: 'Projects',     icon: '📁' },
+  { id: 'editor',    label: 'Editor',       icon: '<>' },
+  { id: 'ai',        label: 'AI Assistant', icon: '✦' },
+  { id: 'teams',     label: 'Teams',        icon: '👥' },
+  { id: 'settings',  label: 'Settings',     icon: '⚙' },
 ];
-
-const ROLE_COLORS: Record<string, string> = {
-  Admin: '#F87171',
-  Developer: '#00D4B8',
-  Viewer: '#FBBF24',
-};
 
 const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate }) => {
   const dispatch = useAppDispatch();
@@ -31,9 +28,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
-
-  const role = user?.role ?? 'Viewer';
-  const navItems = allNavItems.filter((item) => item.roles.includes(role));
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -103,26 +97,20 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate }) => {
         {user && !collapsed && (
           <div className="flex items-center gap-2 mb-3 px-1">
             <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-              style={{ background: `${ROLE_COLORS[role]}20`, color: ROLE_COLORS[role], border: `1px solid ${ROLE_COLORS[role]}40` }}>
+              style={{ background: 'rgba(0,212,184,0.15)', color: '#00D4B8', border: '1px solid rgba(0,212,184,0.3)' }}>
               {user.name[0].toUpperCase()}
             </div>
             <div className="overflow-hidden flex-1 min-w-0">
               <p className="text-xs font-medium text-white truncate">{user.name}</p>
-              <div className="flex items-center gap-1 mt-0.5">
-                <span className="text-xs px-1.5 py-0.5 rounded-full"
-                  style={{ background: `${ROLE_COLORS[role]}15`, color: ROLE_COLORS[role], border: `1px solid ${ROLE_COLORS[role]}30`, fontSize: '9px', fontWeight: 600 }}>
-                  {role.toUpperCase()}
-                </span>
-                <span className="text-xs px-1.5 py-0.5 rounded-full"
-                  style={{
-                    background: user.plan === 'plus' ? 'rgba(0,212,184,0.15)' : 'rgba(107,114,128,0.15)',
-                    color: user.plan === 'plus' ? '#00D4B8' : '#9CA3AF',
-                    border: `1px solid ${user.plan === 'plus' ? 'rgba(0,212,184,0.3)' : 'rgba(107,114,128,0.3)'}`,
-                    fontSize: '9px', fontWeight: 600,
-                  }}>
-                  {user.plan === 'plus' ? '⚡ PLUS' : 'FREE'}
-                </span>
-              </div>
+              <span className="text-xs px-1.5 py-0.5 rounded-full inline-block mt-0.5"
+                style={{
+                  background: user.plan === 'plus' ? 'rgba(0,212,184,0.15)' : 'rgba(107,114,128,0.15)',
+                  color: user.plan === 'plus' ? '#00D4B8' : '#9CA3AF',
+                  border: `1px solid ${user.plan === 'plus' ? 'rgba(0,212,184,0.3)' : 'rgba(107,114,128,0.3)'}`,
+                  fontSize: '9px', fontWeight: 600,
+                }}>
+                {user.plan === 'plus' ? '⚡ PLUS' : 'FREE'}
+              </span>
             </div>
           </div>
         )}
@@ -151,7 +139,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate }) => {
         {user && collapsed && (
           <div className="flex justify-center mb-3">
             <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
-              style={{ background: `${ROLE_COLORS[role]}20`, color: ROLE_COLORS[role], border: `1px solid ${ROLE_COLORS[role]}40` }}>
+              style={{ background: 'rgba(0,212,184,0.15)', color: '#00D4B8', border: '1px solid rgba(0,212,184,0.3)' }}>
               {user.name[0].toUpperCase()}
             </div>
           </div>

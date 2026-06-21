@@ -40,34 +40,8 @@ router.patch('/settings', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// PATCH /api/users/role  (Admin only — change another user's role)
-router.patch('/role', async (req, res, next) => {
-  try {
-    if (!req.user) { sendError(res, 'Not authenticated.', 401); return; }
-    if (req.user.role !== 'Admin') { sendError(res, 'Admin only.', 403); return; }
-
-    const { userId, role } = req.body;
-    if (!userId || !['Admin','Developer','Viewer'].includes(role)) {
-      sendError(res, 'userId and valid role required.', 400);
-      return;
-    }
-
-    const updated = await User.findByIdAndUpdate(userId, { role }, { new: true });
-    if (!updated) { sendError(res, 'User not found.', 404); return; }
-
-    sendSuccess(res, 'Role updated.', { user: updated.toSafeObject() });
-  } catch (e) { next(e); }
-});
-
-// GET /api/users  (Admin only — list all users)
-router.get('/', async (req, res, next) => {
-  try {
-    if (!req.user) { sendError(res, 'Not authenticated.', 401); return; }
-    if (req.user.role !== 'Admin') { sendError(res, 'Admin only.', 403); return; }
-
-    const users = await User.find().select('-password -refreshTokens');
-    sendSuccess(res, 'Users fetched.', { users: users.map((u) => u.toSafeObject()) });
-  } catch (e) { next(e); }
-});
+// Note: there used to be Admin-only `PATCH /role` and `GET /` (list all
+// users) endpoints here. Removed — there's only one role now, so they had
+// no purpose, and nothing in the frontend called them.
 
 export default router;

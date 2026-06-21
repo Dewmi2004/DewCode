@@ -1,6 +1,6 @@
 // ✅ UPDATED src/types/index.ts — added role helpers and RunOutput type
 
-export type UserRole = 'Admin' | 'Developer' | 'Viewer';
+export type UserRole = 'Developer';
 export type PlanName = 'free' | 'plus';
 
 export interface User {
@@ -19,6 +19,7 @@ export interface Project {
   name: string;
   description?: string;
   owner: string;
+  teamId: string | null;
   language: string;
   status: 'Active' | 'Inactive' | 'Archived';
   createdAt: string;
@@ -32,6 +33,22 @@ export interface ProjectFile {
   language: string;
   projectId: string;
   folderId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  addedAt: string;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  owner: { id: string; name: string; email: string };
+  members: TeamMember[];
   createdAt: string;
   updatedAt: string;
 }
@@ -96,13 +113,13 @@ export interface CodeSuggestion {
   description: string;
 }
 
-// Role helpers
-export const canWrite  = (role?: UserRole) => role === 'Admin' || role === 'Developer';
-export const isAdmin   = (role?: UserRole) => role === 'Admin';
-export const isViewer  = (role?: UserRole) => role === 'Viewer';
+// Role helpers — kept for any code that still imports them, but with one
+// role these are now trivially constant. Access tiers (teams, real-time
+// collaboration) are gated by `plan`, not role — see PlanName above.
+export const canWrite  = (_role?: UserRole) => true;
+export const isAdmin   = (_role?: UserRole) => false;
+export const isViewer  = (_role?: UserRole) => false;
 
 export const ROLE_COLORS: Record<UserRole, string> = {
-  Admin: '#F87171',
   Developer: '#00D4B8',
-  Viewer: '#FBBF24',
 };
