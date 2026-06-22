@@ -22,21 +22,13 @@ import chatRoutes     from './routes/chat.routes';
 import teamRoutes     from './routes/team.routes';
 
 const app: Application = express();
-
-// Render (and most PaaS hosts) sit your app behind a reverse proxy. Without
-// this, Express sees every request as plain HTTP from the proxy's internal
-// IP — which breaks "secure" cookies (they'd never get set) and confuses
-// express-rate-limit's IP detection (X-Forwarded-For is otherwise ignored/
-// untrusted). Safe to enable unconditionally; it's a no-op locally.
-app.set('trust proxy', 1);
-
-// CLIENT_URL can be a single URL or a comma-separated list (e.g. your main
-// Vercel domain + a preview-deployment domain) — handy since Vercel gives
-// every branch/PR its own URL.
-const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const allowedOrigins = new Set([
+  process.env.CLIENT_URL || 'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+]);
+const isAllowedDevOrigin = (origin: string): boolean =>
+  /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
 
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
@@ -55,12 +47,13 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: [
-    ...allowedOrigins,
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:3002',
-  ],
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin) || isAllowedDevOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization'],

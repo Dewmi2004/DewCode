@@ -61,13 +61,6 @@ const SettingsPage: React.FC = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleSaveAppearance = async () => {
-    try {
-      await dispatch(updateSettings({ appearance: settings.appearance })).unwrap();
-      showToast('Appearance saved!');
-    } catch { showToast('Save failed', 'error'); }
-  };
-
   const handleSaveEditor = async () => {
     try {
       await dispatch(updateSettings({ editor: settings.editor })).unwrap();

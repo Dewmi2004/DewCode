@@ -41,20 +41,24 @@ const roomPresence = new Map<string, Map<string, Presence>>();
 const saveTimers = new Map<string, NodeJS.Timeout>();
 
 const roomName = (fileId: string): string => `file:${fileId}`;
+const allowedOrigins = new Set([
+  process.env.CLIENT_URL || 'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+]);
+const isAllowedDevOrigin = (origin: string): boolean =>
+  /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
 
 export const initCollaborationSocket = (httpServer: HTTPServer): SocketIOServer => {
-  const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: [
-        ...allowedOrigins,
-        'http://localhost:3001',
-        'http://localhost:3002',
-      ],
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.has(origin) || isAllowedDevOrigin(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(new Error('Not allowed by CORS'));
+      },
       credentials: true,
     },
   });

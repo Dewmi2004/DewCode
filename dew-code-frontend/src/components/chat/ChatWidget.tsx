@@ -11,7 +11,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppSelector } from '../../hooks/redux';
 import { chatApi, type ChatContact, type ChatTeamSummary, type ChatMessage, type ConversationRef } from '../../services/chatApi';
-import { connectCollabSocket, disconnectCollabSocket, getCollabSocket } from '../../services/socket';
+import { connectCollabSocket, disconnectCollabSocket, waitForCollabSocket } from '../../services/socket';
 
 type Conversation =
   | { type: 'dm'; userId: string; name: string }
@@ -51,6 +51,7 @@ const ChatWidget: React.FC = () => {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [draft, setDraft] = useState('');
   const [sendError, setSendError] = useState('');
+  const [socketError, setSocketError] = useState('');
 
   const activeRef = useRef<Conversation | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -103,13 +104,30 @@ const ChatWidget: React.FC = () => {
         setTeams((prev) => prev.map((t) => (t.id === teamId ? { ...t, unread: 0 } : t)));
       }
     };
+    const onConnect = () => setSocketError('');
+    const onConnectError = (error: Error) => {
+      const message = error.message || 'Socket connection failed.';
+      setSocketError(message);
+      console.warn('Chat socket connection failed:', message);
+    };
+    const onDisconnect = (reason: string) => {
+      if (reason !== 'io client disconnect') {
+        console.warn('Chat socket disconnected:', reason);
+      }
+    };
 
     socket.on('chat:message', onMessage);
     socket.on('chat:read', onRead);
+    socket.on('connect', onConnect);
+    socket.on('connect_error', onConnectError);
+    socket.on('disconnect', onDisconnect);
 
     return () => {
       socket.off('chat:message', onMessage);
       socket.off('chat:read', onRead);
+      socket.off('connect', onConnect);
+      socket.off('connect_error', onConnectError);
+      socket.off('disconnect', onDisconnect);
       disconnectCollabSocket();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -143,7 +161,7 @@ const ChatWidget: React.FC = () => {
     }
   }, []);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const content = draft.trim();
     const conv = active;
     if (!content || !conv) return;
@@ -151,8 +169,8 @@ const ChatWidget: React.FC = () => {
     // The widget's own mount effect already holds this connection open for
     // its whole lifetime — grab the existing socket rather than connecting
     // again (that would bump the refcount and require a matching release).
-    const socket = getCollabSocket();
-    if (!socket?.connected) { setSendError('Not connected — try again in a moment.'); return; }
+    const socket = await waitForCollabSocket();
+    if (!socket?.connected) { setSendError(socketError || 'Not connected - try again in a moment.'); return; }
 
     const payload = conv.type === 'dm'
       ? { chatType: 'dm' as const, recipientId: conv.userId, content }
@@ -163,7 +181,7 @@ const ChatWidget: React.FC = () => {
     socket.emit('chat:send', payload, (res: { ok: boolean; error?: string }) => {
       if (!res.ok) setSendError(res.error || 'Failed to send.');
     });
-  }, [draft, active]);
+  }, [draft, active, socketError]);
 
   if (!user) return null;
 
@@ -287,8 +305,8 @@ const ChatWidget: React.FC = () => {
                     })}
                   </div>
 
-                  {sendError && (
-                    <p className="px-4 text-xs" style={{ color: '#F87171' }}>{sendError}</p>
+                  {(sendError || socketError) && (
+                    <p className="px-4 text-xs" style={{ color: '#F87171' }}>{sendError || socketError}</p>
                   )}
 
                   <div className="flex items-end gap-2 p-3 border-t" style={{ borderColor: '#1E1E2E' }}>

@@ -2,6 +2,7 @@
 // Key fix: handleRun now sends { fileName, content } to the backend
 // instead of building a broken shell command string.
 // The backend writes the file to disk and runs it in Docker.
+/* eslint-disable no-template-curly-in-string */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Editor, { Monaco } from '@monaco-editor/react';
@@ -14,7 +15,7 @@ import {
   type ProjectFolder,
 } from '../../store/slices/projectSlice';
 import { fetchTeams } from '../../store/slices/teamSlice';
-import { FileNode, CodeCorrection, CodeSuggestion } from '../../types';
+import { CodeCorrection, CodeSuggestion } from '../../types';
 import Terminal from '../terminal/Terminal';
 import AIAssistant from '../ai/AIAssistant';
 import CodeCorrections from './CodeCorrections';
@@ -24,7 +25,7 @@ import apiFetch from '../../services/api';
 import { aiApi } from '../../services/aiApi';
 import UpgradeModal from '../billing/UpgradeModal';
 import ShareProjectModal from '../projects/ShareProjectModal';
-import { connectCollabSocket, disconnectCollabSocket, getCollabSocket } from '../../services/socket';
+import { connectCollabSocket, disconnectCollabSocket, getCollabSocket, waitForCollabSocket } from '../../services/socket';
 
 // ── Real-time collaboration types ──────────────────────────────────────────
 
@@ -206,13 +207,15 @@ const EditorPage: React.FC = () => {
   const isCollabEligibleRef = useRef(isCollabEligible);
   const activeFileIdRef = useRef<string | null>(null);
   const activeProjectIdRef = useRef<string | null>(null);
+  const currentFileId = activeFile?.id ?? null;
+  const currentProjectId = activeProject?.id ?? null;
   const cursorDecorationIdsRef = useRef<string[]>([]);
   const cursorEmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const codeChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { isCollabEligibleRef.current = isCollabEligible; }, [isCollabEligible]);
-  useEffect(() => { activeFileIdRef.current = activeFile?.id ?? null; }, [activeFile?.id]);
-  useEffect(() => { activeProjectIdRef.current = activeProject?.id ?? null; }, [activeProject?.id]);
+  useEffect(() => { activeFileIdRef.current = currentFileId; }, [currentFileId]);
+  useEffect(() => { activeProjectIdRef.current = currentProjectId; }, [currentProjectId]);
 
   // Only the owner can (re)share a project, and only they see the Share
   // button below — load the team list lazily for them, once.
@@ -250,6 +253,11 @@ const EditorPage: React.FC = () => {
       });
     };
     const onCollabError = (message: string) => { console.warn('Collaboration:', message); setCollaborators([]); };
+    const onConnect = () => {
+      if (activeFileIdRef.current && activeProjectIdRef.current) {
+        socket.emit('join-file', { fileId: activeFileIdRef.current, projectId: activeProjectIdRef.current });
+      }
+    };
 
     socket.on('presence', onPresence);
     socket.on('user-joined', onUserJoined);
@@ -257,6 +265,7 @@ const EditorPage: React.FC = () => {
     socket.on('cursor-update', onCursorUpdate);
     socket.on('code-update', onCodeUpdate);
     socket.on('collab-error', onCollabError);
+    socket.on('connect', onConnect);
 
     return () => {
       socket.off('presence', onPresence);
@@ -265,6 +274,7 @@ const EditorPage: React.FC = () => {
       socket.off('cursor-update', onCursorUpdate);
       socket.off('code-update', onCodeUpdate);
       socket.off('collab-error', onCollabError);
+      socket.off('connect', onConnect);
       disconnectCollabSocket();
       setCollaborators([]);
       setRemoteCursors({});
@@ -273,12 +283,21 @@ const EditorPage: React.FC = () => {
 
   // Join/leave the per-file room whenever the open file changes.
   useEffect(() => {
-    if (!isCollabEligible || !activeFile || !activeProject) return;
-    const socket = connectCollabSocket();
+    if (!isCollabEligible || !currentFileId || !currentProjectId) return;
+    let cancelled = false;
     setRemoteCursors({});
-    socket.emit('join-file', { fileId: activeFile.id, projectId: activeProject.id });
-    return () => { socket.emit('leave-file'); };
-  }, [isCollabEligible, activeFile?.id, activeProject?.id]);
+
+    waitForCollabSocket().then((socket) => {
+      if (!cancelled && socket.connected) {
+        socket.emit('join-file', { fileId: currentFileId, projectId: currentProjectId });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      getCollabSocket()?.emit('leave-file');
+    };
+  }, [isCollabEligible, currentFileId, currentProjectId]);
 
   // Render remote cursors as colored carets in the editor.
   useEffect(() => {
@@ -298,11 +317,11 @@ const EditorPage: React.FC = () => {
   const remoteCursorColors = Array.from(new Set(Object.values(remoteCursors).map((c) => c.color)));
 
   useEffect(() => {
-    if (activeProject) {
-      dispatch(fetchFiles(activeProject.id));
-      dispatch(fetchFolders(activeProject.id));
+    if (currentProjectId) {
+      dispatch(fetchFiles(currentProjectId));
+      dispatch(fetchFolders(currentProjectId));
     }
-  }, [activeProject?.id, dispatch]);
+  }, [currentProjectId, dispatch]);
 
   const tree = buildTree(folders, files.map((f) => ({ id: f.id, fileName: f.fileName, folderId: f.folderId })));
   const newItemParentName = newItemParentId ? folders.find((f) => f.id === newItemParentId)?.name : null;
@@ -618,6 +637,7 @@ const EditorPage: React.FC = () => {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handleSave, activeFile]);
 
   useEffect(() => {
@@ -644,6 +664,7 @@ const EditorPage: React.FC = () => {
     if (showRunOutput && runState && !runState.exited && runState.sessionId && !runState.running) {
       runStdinInputRef.current?.focus();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showRunOutput, runState?.sessionId, runState?.running, runState?.exited]);
 
   const saveColor = saveStatus === 'saved' ? '#00D4B8' : saveStatus === 'saving' ? '#F59E0B' : saveStatus === 'error' ? '#F87171' : '#6B7280';

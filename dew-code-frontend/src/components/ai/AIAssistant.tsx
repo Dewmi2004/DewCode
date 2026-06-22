@@ -52,6 +52,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ compact, initialMessage, onCo
         setInput('');
       }, 300);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialMessage]);
 
   const sendMessage = async (text?: string) => {
