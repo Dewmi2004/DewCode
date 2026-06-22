@@ -1,278 +1,249 @@
-# DewCode - Automatic Correction & Suggestion System
+# DewCode
 
-## Overview
+**AI-Powered Developer Collaboration & Code Intelligence Platform**
 
-I've successfully added automatic code correction and suggestion features to DewCode! This system leverages the AI capabilities (Ollama/Qwen2.5-Coder) to analyze your code and provide real-time feedback.
+DewCode is a full-stack, browser-based development environment that combines real-time collaborative coding, AI-assisted development, and integrated DevOps tooling into a single platform. It is designed to feel like a lightweight cloud IDE — write code, get AI help, run it safely in an isolated container, and collaborate with your team live.
 
-## ✨ New Features
+---
 
-### 1. **Code Analysis & Corrections**
-   - **Endpoint**: `POST /api/ai/correct`
-   - **What it does**: Analyzes your code and identifies:
-     - Errors (syntax, logic issues)
-     - Warnings (potential problems)
-     - Suggestions (best practices, improvements)
-   - **Output**: 
-     - List of issues with line numbers
-     - Corrected code version
-     - Explanation of fixes
+## ✨ Key Features
 
-### 2. **Code Suggestions**
-   - **Endpoint**: `POST /api/ai/suggest`
-   - **What it does**: Provides inline code completion suggestions based on context
-   - **Output**: 2-3 practical suggestions with descriptions
+- 🔐 **User Management** — JWT authentication with Admin / Developer / Viewer roles
+- 📁 **Project & Repository Management** — create, update, delete, and version-track projects
+- 🧠 **AI-Powered Code Assistant** — generation, bug detection, debugging help, and code explanation via a **local Ollama server** (no external API cost)
+- 💻 **Online Code Editor** — Monaco Editor with syntax highlighting, multi-language support, and tab-based navigation
+- 🔗 **GitHub Integration** — clone, commit, push, pull, and branch management
+- 📂 **Project Import** — import local projects and browse the folder structure inside the editor
+- 🖥️ **Built-in Terminal** — run shell commands with real-time output
+- ⚡ **Real-Time Collaboration** — multi-user editing, live cursors, and instant sync via WebSockets
+- ▶️ **Sandboxed Code Execution** — run code safely inside isolated **Docker containers**
+- 📊 **Analytics Dashboard** — track project activity and contributions
+- 📄 **PDF Report Generation** — export project summaries and analytics
 
-### 3. **Frontend Integration**
-   - New buttons: **🔍 Analyze** and **💡 Suggest**
-   - New **Corrections Panel** to display results
-   - One-click to apply corrections
-   - Seamless integration with existing editor
+---
 
-## 🚀 How to Use
-
-### Quick Start
-
-1. **Start Ollama** (if not running):
-   ```bash
-   ollama serve
-   ```
-
-2. **Open a file** in DewCode editor
-
-3. **Click "🔍 Analyze"** to:
-   - Find issues in your code
-   - Get corrected version
-   - See explanations for each fix
-
-4. **Click "💡 Suggest"** to:
-   - Get inline code suggestions
-   - Insert suggestions with one click
-
-### Step-by-Step Workflow
-
-#### Analyzing Code for Corrections:
+## 🏗️ Architecture
 
 ```
-1. Open/edit a file
-2. Click "🔍 Analyze" button (top toolbar)
-3. Wait for analysis (shows spinner)
-4. Review issues in corrections panel:
-   - ❌ Errors (critical)
-   - ⚠️ Warnings (potential issues)
-   - 💡 Suggestions (improvements)
-5. Click "Apply Corrections" to use the corrected code
+Frontend (React + TypeScript + Tailwind + Redux)
+        ↓
+Backend API (Node.js + Express + TypeScript)
+        ↓
+Database (MongoDB + Mongoose)
+        +
+AI Module ───────► Ollama (local LLM server: CodeLlama / DeepSeek)
+Execution Engine ─► Docker Sandbox (per-job isolated containers)
+Git Layer ────────► GitHub API / simple-git
+Real-Time Layer ──► Socket.IO (WebSockets)
 ```
 
-#### Getting Code Suggestions:
+DewCode never runs untrusted user code directly on the host machine. All code execution is delegated to short-lived, resource-limited Docker containers, and all AI inference runs against a locally hosted Ollama instance rather than a third-party API.
 
-```
-1. Open/edit a file
-2. Click "💡 Suggest" button
-3. Review suggestions in corrections panel
-4. Click "Use" button on any suggestion to insert it
-```
+---
 
-#### Switching Between Panels:
+## 🧰 Tech Stack
 
-```
-- Click "🔍 Corrections" button to show/hide corrections panel
-- Click "✦ AI" button to switch to AI assistant
-- Use same panel for both corrections and suggestions
-```
+| Layer | Technology |
+|---|---|
+| Frontend | React, TypeScript, Tailwind CSS, Redux |
+| Backend | Node.js, Express.js, TypeScript |
+| Database | MongoDB, Mongoose |
+| Auth | JWT, bcryptjs |
+| AI | Ollama (local LLMs — CodeLlama, DeepSeek, etc.) |
+| Real-Time | Socket.IO (WebSockets) |
+| Code Execution | Docker (sandboxed containers) |
+| Deployment | Vercel (frontend), Render (backend), MongoDB Atlas (database) |
 
-## 📋 File Structure
+---
 
-### Backend Changes
+## ⚙️ Prerequisites
 
-**New controller methods** in `src/controllers/ai.controller.ts`:
-- `correctCode()` - Analyzes code and returns corrections
-- `suggestCode()` - Provides inline suggestions
+Make sure the following are installed on your machine before running DewCode:
 
-**New routes** in `src/routes/ai.routes.ts`:
-- `POST /api/ai/correct` - Protected endpoint for corrections
-- `POST /api/ai/suggest` - Protected endpoint for suggestions
+- [Node.js](https://nodejs.org/) v18+
+- [npm](https://www.npmjs.com/) or yarn
+- [Docker](https://www.docker.com/) (Docker Desktop or Docker Engine) — **required** for sandboxed code execution
+- [Ollama](https://ollama.com/) — **required** for the local AI assistant
+- MongoDB (local instance or MongoDB Atlas connection string)
 
-### Frontend Changes
+---
 
-**New files:**
-- `src/services/aiApi.ts` - API service for corrections/suggestions
-- `src/components/editor/CodeCorrections.tsx` - Corrections display panel
-- `src/components/editor/CodeSuggestions.tsx` - Suggestions display panel
+## 🚀 Getting Started
 
-**Modified files:**
-- `src/types/index.ts` - Added types: `CodeIssue`, `CodeCorrection`, `CodeSuggestion`
-- `src/components/editor/EditorPage.tsx` - Integrated correction/suggestion UI
+### 1. Clone the repository
 
-## 🔧 API Reference
-
-### POST /api/ai/correct
-
-**Request Body:**
-```json
-{
-  "code": "your code here",
-  "language": "typescript",
-  "model": "qwen2.5-coder"  // optional
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "issues": [
-      {
-        "type": "error|warning|suggestion",
-        "line": 5,
-        "message": "Description of issue",
-        "fix": "suggested fix code"
-      }
-    ],
-    "correctedCode": "fixed code here",
-    "explanation": "explanation of changes"
-  }
-}
-```
-
-### POST /api/ai/suggest
-
-**Request Body:**
-```json
-{
-  "code": "your code here",
-  "language": "typescript",
-  "line": 10,
-  "column": 5,
-  "model": "qwen2.5-coder"  // optional
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "suggestions": [
-      {
-        "text": "suggestion code",
-        "description": "what this does"
-      }
-    ]
-  }
-}
-```
-
-## 🎯 Supported Languages
-
-- JavaScript/TypeScript
-- Python
-- Java
-- C/C++
-- Go
-- Rust
-- SQL
-- And many more (any language Ollama supports)
-
-## ⚙️ Configuration
-
-The system uses:
-- **Ollama** for AI analysis
-- **Qwen2.5-Coder** as default model (can be changed)
-- **Temperature**: 0.3 for corrections (low for accuracy), 0.5 for suggestions
-- **Timeout**: 120 seconds for Ollama requests
-
-## 🔑 Key Components
-
-### CodeCorrections.tsx
-Displays:
-- Issue summary (count and types)
-- Expandable issue list with details
-- Corrected code preview
-- Explanation of changes
-- "Apply Corrections" button
-
-### CodeSuggestions.tsx
-Displays:
-- List of suggestions
-- Code snippet for each
-- Description/explanation
-- "Use" button to insert
-
-### aiApi Service
-Provides methods:
-- `correctCode()` - Get corrections
-- `suggestCode()` - Get suggestions
-- `generatePrompt()` - Send to AI chat
-
-## 💡 Tips & Best Practices
-
-1. **For best results:**
-   - Use meaningful variable names
-   - Add comments explaining complex logic
-   - Provide context in code
-
-2. **Temperature settings:**
-   - Corrections use low temperature (0.3) for accuracy
-   - Suggestions use medium temperature (0.5) for variety
-
-3. **Error handling:**
-   - If Ollama is offline, you'll see descriptive errors
-   - Ensure `ollama serve` is running in background
-   - Check if model is available: `ollama list`
-
-4. **Performance:**
-   - Analysis typically takes 3-15 seconds
-   - Loading indicator shows during processing
-   - Large files may take longer
-
-## 🐛 Troubleshooting
-
-### "Cannot connect to Ollama" error
 ```bash
-# Ensure Ollama is running
-ollama serve
-
-# In another terminal, pull the model
-ollama pull qwen2.5-coder
+git clone https://github.com/<your-org>/dewcode.git
+cd dewcode
 ```
 
-### Suggestions not working
-- Check that Ollama is running
-- Verify the model is available
-- Ensure code is not empty
+### 2. Install dependencies
 
-### Analysis takes too long
-- Consider using a smaller code sample
-- Check if other processes are using resources
-- Try again after a moment
+```bash
+# Backend
+cd backend
+npm install
 
-## 🚀 Future Enhancements
+# Frontend
+cd ../frontend
+npm install
+```
 
-Possible improvements:
-- Real-time inline suggestions as you type
-- Integration with VS Code diagnostics
-- Custom rule/linter integration
-- Performance optimizations
-- Different AI models support
-- Language-specific analyzers
-- Git diff integration
+### 3. Configure environment variables
 
-## 📚 Related Features
+Create a `.env` file inside `backend/`:
 
-- **AI Assistant** (✦ AI button) - Chat with AI about code
-- **Terminal** (&gt;_ button) - Run/execute code
-- **Code Editor** - Monaco editor with IntelliSense
+```env
+PORT=5000
+MONGO_URI=mongodb://localhost:27017/dewcode
+JWT_SECRET=your_jwt_secret_here
 
-## ✅ What's Working
+# Ollama (local AI server)
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=codellama
 
-✓ Backend endpoints for corrections and suggestions  
-✓ Frontend UI components  
-✓ API integration  
-✓ Error handling  
-✓ Type safety (TypeScript)  
-✓ UI/UX polish with proper styling  
-✓ Loading states  
-✓ One-click apply corrections  
+# Docker sandbox
+DOCKER_SOCKET=/var/run/docker.sock
+EXECUTION_TIMEOUT_MS=10000
+EXECUTION_MEMORY_LIMIT=256m
+```
 
-Enjoy automatic code improvements! 🎉
+Create a `.env` file inside `frontend/`:
+
+```env
+VITE_API_BASE_URL=http://localhost:5000/api
+VITE_SOCKET_URL=http://localhost:5000
+```
+
+### 4. Start Ollama (AI Assistant)
+
+DewCode's AI assistant runs entirely on your machine through Ollama — no external API key required.
+
+```bash
+# Install Ollama: https://ollama.com/download
+
+# Pull a code-capable model
+ollama pull codellama
+# or
+ollama pull deepseek-coder
+
+# Start the Ollama server
+ollama serve
+```
+
+By default, Ollama listens on `http://localhost:11434`. The backend connects to this address to send code generation, review, and debugging requests to the local model.
+
+### 5. Start Docker (Code Execution Sandbox)
+
+DewCode executes all user-submitted code inside isolated, ephemeral Docker containers rather than on the host system. This keeps execution safe, language-agnostic, and resource-limited.
+
+```bash
+# Make sure the Docker daemon is running
+docker --version
+docker ps
+```
+
+Build the language runner images used by the execution engine (example for Python and Java):
+
+```bash
+cd backend/docker/runners
+
+docker build -t dewcode-python-runner ./python
+docker build -t dewcode-java-runner ./java
+docker build -t dewcode-node-runner ./node
+```
+
+Each runner image is minimal and contains only the toolchain needed to compile/run that language. When a user clicks **Run**, the backend:
+
+1. Spins up a fresh container from the relevant runner image
+2. Mounts the submitted code as a read-only volume
+3. Applies CPU, memory, and time limits (`EXECUTION_TIMEOUT_MS`, `EXECUTION_MEMORY_LIMIT`)
+4. Streams stdout/stderr back to the editor's output console
+5. Destroys the container immediately after execution
+
+No code execution request ever runs directly via `child_process` on the host — Docker is mandatory for this feature.
+
+### 6. Run the application
+
+```bash
+# Start backend (from /backend)
+npm run dev
+
+# Start frontend (from /frontend)
+npm run dev
+```
+
+The app should now be available at `http://localhost:5173` (or your configured frontend port), with the API running at `http://localhost:5000`.
+
+---
+
+## 🐳 Docker Compose (optional, recommended)
+
+For convenience, you can spin up MongoDB, the backend, and the frontend together with Docker Compose, while Ollama and the code-execution sandbox runners remain managed separately:
+
+```bash
+docker compose up --build
+```
+
+> Note: Ollama itself is typically run as a native host process (not inside Compose) so it can access GPU acceleration if available. The execution-sandbox runner images are built separately, as shown in step 5.
+
+---
+
+## 🧪 How AI Assistance Works
+
+1. The frontend sends a prompt (e.g. "explain this function" or "fix this bug") to the backend.
+2. The backend forwards the prompt, along with relevant code context, to the local Ollama server at `OLLAMA_HOST`.
+3. Ollama runs inference using the configured local model (e.g. CodeLlama or DeepSeek-Coder) — entirely offline, with zero per-request API cost.
+4. The response (code suggestion, explanation, or fix) is streamed back to the editor.
+
+## 🛡️ How Sandboxed Execution Works
+
+1. The user writes code in the Monaco editor and clicks **Run**.
+2. The backend selects the appropriate Docker runner image for the chosen language.
+3. A new, isolated container is created with strict CPU/memory/time limits and no network access by default.
+4. The code runs inside the container; output is streamed back live to the console panel.
+5. The container is torn down immediately after execution, leaving no residual state.
+
+---
+
+## 📂 Project Structure
+
+```
+dewcode/
+├── backend/
+│   ├── src/
+│   │   ├── controllers/
+│   │   ├── models/
+│   │   ├── routes/
+│   │   ├── services/
+│   │   │   ├── ai/           # Ollama integration
+│   │   │   └── execution/    # Docker sandbox engine
+│   │   └── sockets/          # Real-time collaboration (Socket.IO)
+│   ├── docker/
+│   │   └── runners/          # Per-language Dockerfiles
+│   └── .env
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── store/             # Redux
+│   │   └── editor/            # Monaco Editor integration
+│   └── .env
+└── README.md
+```
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] Branch management UI for GitHub integration
+- [ ] Multi-model selector for the Ollama assistant
+- [ ] Analytics dashboard v2 with team-level insights
+- [ ] Configurable per-language resource limits for the Docker sandbox
+- [ ] Offline-first editing mode
+
+---
+
+## 📄 License
+
+This project is currently proposed for academic/portfolio purposes. Add your preferred license (e.g. MIT) here before public release.
