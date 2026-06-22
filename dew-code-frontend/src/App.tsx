@@ -12,6 +12,7 @@ import EditorPage from './components/editor/EditorPage';
 import AIPage from './pages/AIPage';
 import TeamsPage from './components/team/TeamsPage';
 import SettingsPage from './pages/SettingsPage';
+import ChatWidget from './components/chat/ChatWidget';
 
 // ── Auth loading splash ───────────────────────────────────────────────────
 
@@ -61,6 +62,7 @@ const MainApp: React.FC<MainAppProps> = ({ page, onNavigate }) => {
       <main className="flex-1 overflow-hidden flex flex-col">
         {renderPage()}
       </main>
+      <ChatWidget />
     </div>
   );
 };
