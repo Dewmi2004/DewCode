@@ -23,6 +23,21 @@ import teamRoutes     from './routes/team.routes';
 
 const app: Application = express();
 
+// Render (and most PaaS hosts) sit your app behind a reverse proxy. Without
+// this, Express sees every request as plain HTTP from the proxy's internal
+// IP — which breaks "secure" cookies (they'd never get set) and confuses
+// express-rate-limit's IP detection (X-Forwarded-For is otherwise ignored/
+// untrusted). Safe to enable unconditionally; it's a no-op locally.
+app.set('trust proxy', 1);
+
+// CLIENT_URL can be a single URL or a comma-separated list (e.g. your main
+// Vercel domain + a preview-deployment domain) — handy since Vercel gives
+// every branch/PR its own URL.
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
   contentSecurityPolicy: {
@@ -41,7 +56,8 @@ app.use(helmet({
 
 app.use(cors({
   origin: [
-    process.env.CLIENT_URL || 'http://localhost:3000',
+    ...allowedOrigins,
+    'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:3002',
   ],

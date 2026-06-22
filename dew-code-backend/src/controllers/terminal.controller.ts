@@ -61,6 +61,28 @@ import { sendSuccess, sendError } from '../utils/response';
 // default for the current platform automatically.
 const docker = new Docker();
 
+// ── Deploy note ─────────────────────────────────────────────────────────
+// Render's standard web services do NOT expose a Docker socket/daemon to
+// the container your app runs in, so dockerode has nothing to talk to once
+// this is deployed there — every run attempt would otherwise fail with a
+// raw ENOENT/ECONNREFUSED from dockerode. We ping the daemon once up front
+// so we can return one clear, actionable error instead of a stack trace.
+let dockerAvailable: boolean | null = null;
+const isDockerAvailable = async (): Promise<boolean> => {
+  if (dockerAvailable !== null) return dockerAvailable;
+  try {
+    await docker.ping();
+    dockerAvailable = true;
+  } catch {
+    dockerAvailable = false;
+    console.warn(
+      '[Terminal] Docker daemon not reachable — code execution disabled. ' +
+      'Expected when running on Render (no Docker socket access).'
+    );
+  }
+  return dockerAvailable;
+};
+
 // ── Timing knobs ────────────────────────────────────────────────────────
 // We don't have a real TTY/PTY telling us "the program is now blocked on
 // input", so we approximate it: keep collecting output until nothing new
@@ -434,6 +456,16 @@ export const executeCommand = async (
   next: NextFunction
 ): Promise<void> => {
   try {
+    if (!(await isDockerAvailable())) {
+      sendError(
+        res,
+        'Code execution is unavailable on this deployment (no Docker access on the host). ' +
+        'Run the backend locally with Docker Desktop running to use Run/Terminal.',
+        503
+      );
+      return;
+    }
+
     const { command, fileName, content, stdin } = req.body as {
       command?: string;
       fileName?: string;

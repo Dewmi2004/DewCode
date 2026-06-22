@@ -43,10 +43,15 @@ const saveTimers = new Map<string, NodeJS.Timeout>();
 const roomName = (fileId: string): string => `file:${fileId}`;
 
 export const initCollaborationSocket = (httpServer: HTTPServer): SocketIOServer => {
+  const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
   const io = new SocketIOServer(httpServer, {
     cors: {
       origin: [
-        process.env.CLIENT_URL || 'http://localhost:3000',
+        ...allowedOrigins,
         'http://localhost:3001',
         'http://localhost:3002',
       ],
