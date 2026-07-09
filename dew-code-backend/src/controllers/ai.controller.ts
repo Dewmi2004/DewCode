@@ -1,10 +1,9 @@
-// ✅ FIXED ai.controller.ts — uses qwen2.5-coder:1.5b, reduced token limits
 
 import { Request, Response, NextFunction } from 'express';
 import { sendSuccess, sendError } from '../utils/response';
 
 const OLLAMA_URL    = process.env.OLLAMA_URL    || 'http://localhost:11434';
-const DEFAULT_MODEL = process.env.OLLAMA_MODEL  || 'qwen2.5-coder:1.5b'; // ✅ small fast model
+const DEFAULT_MODEL = process.env.OLLAMA_MODEL  || 'qwen2.5-coder:1.5b'; 
 
 interface OllamaGenerateRequest {
   model: string;

@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/services/chatApi.ts
 // REST half of chat — overview (contacts/teams + unread counts), message
 // history, and marking things read. Actually sending a message happens
 // over the socket (see services/socket.ts + ChatWidget) since that's the

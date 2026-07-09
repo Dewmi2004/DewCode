@@ -1,4 +1,4 @@
-// ✅ FIXED EditorPage.tsx
+//  FIXED EditorPage.tsx
 // Key fix: handleRun now sends { fileName, content } to the backend
 // instead of building a broken shell command string.
 // The backend writes the file to disk and runs it in Docker.

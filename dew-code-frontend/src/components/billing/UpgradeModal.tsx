@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/components/billing/UpgradeModal.tsx
 // Free vs Plus pricing modal + PayHere "Onsite Checkout" upgrade flow.
 //
 // Flow: initiatePlusUpgrade() (backend creates the order + hash) ->

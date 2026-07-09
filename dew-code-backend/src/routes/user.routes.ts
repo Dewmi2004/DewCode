@@ -1,4 +1,3 @@
-// ✅ UPDATED src/routes/user.routes.ts
 // Added: PATCH /api/users/settings
 
 import { Router } from 'express';

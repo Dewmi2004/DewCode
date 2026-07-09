@@ -1,4 +1,3 @@
-// ✅ Day 10 → AI PAGE (full-screen AI view via sidebar nav)
 
 import React from 'react';
 import AIAssistant from '../components/ai/AIAssistant';

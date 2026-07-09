@@ -1,4 +1,3 @@
-// ✅ UPDATED src/types/index.ts — added role helpers and RunOutput type
 
 export type UserRole = 'Developer';
 export type PlanName = 'free' | 'plus';

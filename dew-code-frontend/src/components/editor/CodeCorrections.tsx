@@ -1,4 +1,4 @@
-// ✅ Code Corrections Panel Component
+//  Code Corrections Panel Component
 // Displays code issues, corrections, and suggestions with ability to apply fixes
 
 import React, { useState } from 'react';

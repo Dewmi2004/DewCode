@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/models/Payment.ts
 // Tracks PayHere checkout attempts so /api/payments/payhere/notify has
 // something to look up and update when the webhook fires.
 

@@ -1,47 +1,4 @@
-// ✅ UPDATED: src/services/socket.ts
-// Thin wrapper around socket.io-client for both real-time features that
-// share one connection: file collaboration (EditorPage) and chat
-// (ChatWidget, mounted for the whole authenticated session). Each caller
-// connects/disconnects independently via a refcount, so EditorPage leaving
-// the page doesn't kill the connection ChatWidget is still holding open,
-// and vice versa — the socket only actually disconnects once nobody needs
-// it anymore (in practice: on logout, when ChatWidget itself unmounts).
-//
-// BUGFIX 1: `auth` must be a function, not a plain object. socket.io-client
-// only re-reads a plain `auth: {...}` object once, at the moment the
-// socket instance is first constructed — every automatic reconnection
-// after that (server restart, network blip, Render cold start) resends
-// that same, now possibly-stale token, and the server's handshake
-// middleware rejects it with "Authentication required." forever, with no
-// further error shown anywhere obvious. socket.io-client DOES call a
-// function-form `auth` fresh on every single connection attempt.
-//
-// BUGFIX 2: that function-form callback now WAITS for a token instead of
-// firing immediately with whatever is (or isn't) available right this
-// instant. The server only ever throws "Authentication required." when
-// the handshake arrives with no token at all — and that's exactly what
-// happens if anything calls connect() a beat before React/Redux has
-// finished writing the token (most commonly React 18/19 StrictMode, which
-// mounts → cleans up → re-mounts every effect once in dev, so the very
-// first connection attempt can race app bootstrap). Once that attempt is
-// rejected, the *connection* (not just the auth) is dead — socket.io does
-// reconnect automatically, but every retry sends the same handshake, so a
-// component watching for a one-shot "connect" can sit broken until a full
-// page reload. Waiting for a real token before ever sending the CONNECT
-// packet removes that failure mode entirely instead of retrying around it.
-// This is also why chat ("Authentication required" in console) and the
-// editor's live cursors (no presence/cursor events ever arrive) break
-// together — they're two consumers of this one socket.
-//
-// BUGFIX 3: disconnectCollabSocket() no longer tears the socket down the
-// instant refCount hits 0. StrictMode's mount→cleanup→re-mount happens
-// inside the same tick for each component, but ChatWidget and EditorPage
-// are *different* components, so there's a brief window where one has
-// cleaned up (refCount dropped to 0, scheduling teardown) right before the
-// other's re-mount calls connectCollabSocket() again. Without a grace
-// window, that first teardown can fire and kill a connection something
-// else just asked to keep open. A short delay (cancelled if refCount goes
-// back above 0 in time) makes the singleton resilient to that churn.
+
 
 import { io, Socket } from 'socket.io-client';
 import { getAccessToken } from './api';

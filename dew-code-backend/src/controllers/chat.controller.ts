@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/controllers/chat.controller.ts
 // Sending a message happens over the socket (chat.socket.ts) — that's the
 // whole point of "live" chat. REST only covers what doesn't need to be
 // real-time: the contact/team list with unread counts (for first paint and

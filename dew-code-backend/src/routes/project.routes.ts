@@ -1,4 +1,3 @@
-// ✅ UPDATED src/routes/project.routes.ts
 // Role enforcement: Viewers can GET, only Admin/Developer can create/edit/delete
 
 import { Router } from 'express';

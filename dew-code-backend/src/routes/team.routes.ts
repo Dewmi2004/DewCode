@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/routes/team.routes.ts
 
 import { Router } from 'express';
 import {

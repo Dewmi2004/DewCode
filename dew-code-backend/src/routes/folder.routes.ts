@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/routes/folder.routes.ts
 
 import { Router } from 'express';
 import {

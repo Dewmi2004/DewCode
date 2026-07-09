@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/services/teamApi.ts
 
 import apiFetch from './api';
 import type { Team } from '../types';

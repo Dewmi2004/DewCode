@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/utils/projectAccess.ts
 // Single definition of "can this user touch this project" used by the
 // project/file/folder controllers AND the collaboration socket server, so
 // access rules can't drift between REST and WebSocket paths.

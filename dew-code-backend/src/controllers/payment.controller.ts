@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/controllers/payment.controller.ts
 // PayHere Checkout API integration — one-time payment that upgrades the
 // signed-in user to the Plus plan.
 //

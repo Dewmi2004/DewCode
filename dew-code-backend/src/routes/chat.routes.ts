@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/routes/chat.routes.ts
 
 import { Router } from 'express';
 import { getOverview, getMessages, markRead } from '../controllers/chat.controller';

@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/services/paymentApi.ts
 // Talks to the backend's PayHere endpoints. The actual checkout popup is
 // driven by the PayHere JS SDK in components/billing/UpgradeModal.tsx —
 // this file only fetches the signed hash + plan status.

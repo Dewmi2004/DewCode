@@ -1,4 +1,3 @@
-// ✅ UPDATED Sidebar.tsx
 // Single-role app now (just "Developer") — nav items are no longer
 // filtered by role. Plus-only features still show their own upgrade
 // prompts inline (e.g. Teams page gates team creation by plan).

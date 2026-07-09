@@ -1,4 +1,3 @@
-// ✅ Day 9 → AI API ROUTES
 // POST /api/ai/prompt    → generate AI response (requires auth)
 // GET  /api/ai/models    → list available Ollama models
 // GET  /api/ai/health    → check if Ollama is running

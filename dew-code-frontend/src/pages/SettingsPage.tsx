@@ -1,4 +1,3 @@
-// ✅ UPDATED SettingsPage.tsx
 // - All settings wired to Redux + persisted to backend
 // - Theme changes apply live to Monaco editor
 // - Role-based: Viewers cannot change editor/AI settings

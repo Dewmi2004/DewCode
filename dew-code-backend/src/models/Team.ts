@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/models/Team.ts
 // A "Group" any Admin or Developer can create (Plus plan required) and add
 // other registered users to.
 // Projects can optionally be shared with a Team (see Project.teamId) — every

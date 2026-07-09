@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/config/plans.ts
 // Mirrors dew-code-backend/src/config/plans.ts for UI display purposes only.
 // The backend is the source of truth/enforcement — this is just copy.
 

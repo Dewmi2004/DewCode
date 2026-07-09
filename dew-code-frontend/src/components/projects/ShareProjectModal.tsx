@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/components/projects/ShareProjectModal.tsx
 // Lets the project owner attach/detach a team after the project already
 // exists — the "share a project with it" step TeamsPage's own copy
 // promised but never actually had anywhere to send you to. Once a team is

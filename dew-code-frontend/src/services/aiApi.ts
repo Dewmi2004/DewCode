@@ -1,4 +1,4 @@
-// ✅ AI API Service
+//  AI API Service
 // Handles calls to /api/ai/* endpoints
 
 import apiFetch from './api';

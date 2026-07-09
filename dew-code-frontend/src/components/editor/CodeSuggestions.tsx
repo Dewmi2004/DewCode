@@ -1,4 +1,4 @@
-// ✅ Code Suggestions Component
+// Code Suggestions Component
 // Displays inline code suggestions/completions with descriptions
 
 import React from 'react';

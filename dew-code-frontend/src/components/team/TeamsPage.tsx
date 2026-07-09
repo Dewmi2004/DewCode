@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/components/teams/TeamsPage.tsx
 // Admin-only "Groups" page: create a team (Plus plan required), add other
 // registered users to it by email, and remove them. Any project assigned
 // to a team becomes real-time collaborative for every member.

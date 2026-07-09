@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/middleware/planLimiter.middleware.ts
 // Gates project/folder/file creation by the user's plan (Free vs Plus).
 // On the Free plan, hitting a limit returns 403 with upgrade: true so the
 // frontend can pop the Upgrade-to-Plus modal instead of a generic error.

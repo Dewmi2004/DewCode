@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/routes/payment.routes.ts
 
 import { Router } from 'express';
 import { initiatePayment, payhereNotify, getPaymentStatus } from '../controllers/payment.controller';

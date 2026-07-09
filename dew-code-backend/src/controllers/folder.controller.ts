@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/controllers/folder.controller.ts
 // CRUD for the VS-Code-style folder tree. Folders are explicit documents
 // (not derived from file paths) so empty folders persist and rename/move
 // is an O(1) metadata update instead of rewriting every file's path.

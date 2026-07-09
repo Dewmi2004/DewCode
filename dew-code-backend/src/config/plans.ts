@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/config/plans.ts
 // Single source of truth for Free vs Plus plan limits + PayHere pricing.
 
 export type PlanName = 'free' | 'plus';

@@ -1,4 +1,3 @@
-// ✅ UPDATED src/models/File.ts
 // Added: folderId (nullable ref to Folder) so files can live inside a
 // VS-Code-style folder tree instead of only flat per-project lists.
 

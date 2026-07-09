@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/components/chat/ChatWidget.tsx
 // Floating chat button (with an unread badge) + a half-screen slide-in
 // panel. Mounted once in MainApp so it's available from every page and the
 // badge stays live the whole session, not just while a chat panel happens

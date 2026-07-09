@@ -1,4 +1,4 @@
-// ✅ FIXED AIAssistant.tsx — default model changed to qwen2.5-coder:1.5b
+// FIXED AIAssistant.tsx — default model changed to qwen2.5-coder:1.5b
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Message } from '../../types';

@@ -1,4 +1,3 @@
-// ✅ UPDATED src/routes/file.routes.ts
 // Role enforcement on file mutations
 
 import { Router } from 'express';

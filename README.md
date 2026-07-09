@@ -73,7 +73,7 @@ Make sure the following are installed on your machine before running DewCode:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/<your-org>/dewcode.git
+git clone https://github.com/Dewmi2004/DewCode
 cd dewcode
 ```
 
@@ -244,6 +244,5 @@ dewcode/
 
 ---
 
-## 📄 License
+## Demo Video
 
-This project is currently proposed for academic/portfolio purposes. Add your preferred license (e.g. MIT) here before public release.

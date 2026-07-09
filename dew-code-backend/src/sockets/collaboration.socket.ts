@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/sockets/collaboration.socket.ts
 // Real-time collaboration — available on any project shared with a Team.
 // Teams can only be created by a Plus-plan Admin (see team.controller.ts),
 // so this is effectively Plus-only, but individual members don't each

@@ -1,4 +1,3 @@
-// ✅ UPDATED src/app.ts
 // Fixed: terminal route import uses lowercase filename (terminal.routes.ts)
 // Added: /api/users/settings PATCH route
 

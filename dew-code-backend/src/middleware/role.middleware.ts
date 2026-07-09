@@ -1,4 +1,3 @@
-// ✅ UPDATED src/middleware/role.middleware.ts
 // There is only one role now (Developer) — access tiers are handled by
 // PLAN (free/plus, see planLimiter.middleware.ts), not by role. This file
 // is kept mainly so existing routes that import `requireWriter` don't need

@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/controllers/team.controller.ts
 // Group management — any Admin or Developer can create one (Plus plan
 // required), Viewers cannot.
 // Once a team exists, any member — regardless of their own personal plan —

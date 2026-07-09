@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/models/Folder.ts
 // Explicit folder entities so empty folders persist (like VS Code) instead
 // of being inferred from slash-delimited file names.
 

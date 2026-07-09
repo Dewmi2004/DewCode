@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/services/payhereSdk.ts
 // Loads PayHere's onsite-checkout script once and exposes a typed
 // startPayment() wrapper around the global `window.payhere` object it sets.
 

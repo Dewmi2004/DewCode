@@ -1,4 +1,3 @@
-// ✅ UPDATED src/features/settings/settingsSlice.ts
 // New exports: updateEditorSettings, updateAISettings helpers
 
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';

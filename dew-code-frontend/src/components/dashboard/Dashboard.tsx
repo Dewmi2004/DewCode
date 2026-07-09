@@ -1,4 +1,3 @@
-// src/components/dashboard/Dashboard.tsx
 import React, { useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux';
 import { fetchProjects, setActiveProject, type Project } from '../../store/slices/projectSlice';

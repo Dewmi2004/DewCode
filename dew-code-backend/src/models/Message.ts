@@ -1,4 +1,3 @@
-// ✅ NEW FILE: src/models/Message.ts
 // One document per chat message. `chatType` decides which of
 // recipient/teamId is populated. `readBy` includes the sender at creation
 // time (you've obviously "read" your own message) so unread counts are a

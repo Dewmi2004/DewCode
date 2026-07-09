@@ -1,4 +1,3 @@
-// ✅ UPDATED src/routes/terminal.routes.ts
 // Role: Viewers cannot execute commands
 //
 // FIX: /stdin and /kill were exported from terminal.controller.ts but never
